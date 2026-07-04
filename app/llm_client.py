@@ -127,7 +127,23 @@ def _local_plan(evaluation: RiskEvaluation) -> str:
     return "\n".join(parts)
 
 
-def _cloud_plan(evaluation: RiskEvaluation, api_key: str) -> str:
+def _build_system_prompt(knowledge_text: str | None) -> str:
+    """System prompt, optionally grounded in the knowledge-base document."""
+    if not knowledge_text:
+        return SYSTEM_PROMPT
+    snippet = knowledge_text.strip()[: config.KNOWLEDGE_MAX_CHARS]
+    return (
+        SYSTEM_PROMPT
+        + "\n\nMATERIAL METODOLOGIC DE REFERINȚĂ (bază de cunoștințe încărcată "
+        "de utilizator). Folosește-l pentru a alinia planul la metodologia și "
+        "terminologia din cercetare; nu îl cita textual:\n"
+        "<<<\n" + snippet + "\n>>>"
+    )
+
+
+def _cloud_plan(
+    evaluation: RiskEvaluation, api_key: str, knowledge_text: str | None = None
+) -> str:
     """Generate the plan with Claude. Raises on any SDK/API error."""
     import anthropic  # lazy: keeps the app usable when the SDK is absent
 
@@ -140,7 +156,7 @@ def _cloud_plan(evaluation: RiskEvaluation, api_key: str) -> str:
         model=config.LLM_MODEL,
         max_tokens=config.LLM_MAX_TOKENS,
         thinking={"type": "adaptive"},
-        system=SYSTEM_PROMPT,
+        system=_build_system_prompt(knowledge_text),
         messages=[{"role": "user", "content": user_msg}],
     )
     text = "".join(
@@ -152,13 +168,24 @@ def _cloud_plan(evaluation: RiskEvaluation, api_key: str) -> str:
 
 
 def generate_action_plan(
-    evaluation: RiskEvaluation, api_key: str | None = None
+    evaluation: RiskEvaluation,
+    api_key: str | None = None,
+    knowledge_text: str | None = None,
 ) -> tuple[str, str]:
-    """Return (plan_text, source). Never raises — falls back to the template."""
+    """Return (plan_text, source). Never raises — falls back to the template.
+
+    ``knowledge_text`` (optional) is the user's imported .docx knowledge base;
+    when present it grounds the cloud generation. It is not used by the local
+    template (which is rule-based).
+    """
     key = api_key or os.environ.get(config.LLM_API_KEY_ENV, "").strip()
     if key:
         try:
-            return _cloud_plan(evaluation, key), "cloud (Claude)"
+            plan = _cloud_plan(evaluation, key, knowledge_text)
+            source = "cloud (Claude)"
+            if knowledge_text:
+                source += " + bază de cunoștințe"
+            return plan, source
         except Exception as exc:  # offline-first: degrade gracefully
             plan = _local_plan(evaluation)
             note = (

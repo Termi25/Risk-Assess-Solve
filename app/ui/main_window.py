@@ -74,6 +74,11 @@ class MainWindow(QMainWindow):
 
     # --- UI construction ---------------------------------------------------
     def _build_menu(self) -> None:
+        settings_menu = self.menuBar().addMenu("&Setări")
+        act_kb = QAction("Bază de cunoștințe (.docx)…", self)
+        act_kb.triggered.connect(self._on_settings)
+        settings_menu.addAction(act_kb)
+
         model_menu = self.menuBar().addMenu("&Model")
         act_retrain = QAction("Reantrenează modelul", self)
         act_retrain.triggered.connect(self._on_retrain)
@@ -201,7 +206,15 @@ class MainWindow(QMainWindow):
     def _refresh_llm_status(self) -> None:
         has_key = bool(os.environ.get(config.LLM_API_KEY_ENV, "").strip())
         mode = "cloud (Claude)" if has_key else "local (offline)"
-        self.plan_source.setText(f"Sursă plan: se va folosi modul {mode}.")
+        from .. import settings
+        kb = settings.get_knowledge()
+        kb_note = f" • bază de cunoștințe: {kb['filename']}" if kb else ""
+        self.plan_source.setText(f"Sursă plan: se va folosi modul {mode}.{kb_note}")
+
+    def _on_settings(self) -> None:
+        from .settings_dialog import SettingsDialog
+        SettingsDialog(self).exec()
+        self._refresh_llm_status()
 
     def _fill_demo(self) -> None:
         self.in_surname.setText("Popescu")

@@ -57,7 +57,10 @@ class AssessmentService:
         self, evaluation: RiskEvaluation, api_key: Optional[str] = None
     ) -> tuple[str, str]:
         from .llm_client import generate_action_plan
-        text, source = generate_action_plan(evaluation, api_key=api_key)
+        from .settings import get_knowledge_text
+        text, source = generate_action_plan(
+            evaluation, api_key=api_key, knowledge_text=get_knowledge_text() or None
+        )
         evaluation.action_plan_text = text
         evaluation.action_plan_source = source
         return text, source

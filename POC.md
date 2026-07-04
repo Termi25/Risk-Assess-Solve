@@ -91,6 +91,19 @@ set ANTHROPIC_API_KEY=sk-ant-...   # Windows
 Only the anonymized score + SHAP explanation are sent — never names or the
 free-text observation.
 
+### Optional: knowledge base (Settings → Bază de cunoștințe)
+
+Menu **„Setări” → „Bază de cunoștințe (.docx)”** lets a teacher attach a Word
+document (typically the research/methodology article) — the same idea as a
+Gemini Gem's knowledge pool. Its text is extracted (with the standard library,
+no extra dependency) and stored locally in `settings.json`, then used to
+**ground the cloud action-plan generation** so the plan follows your
+methodology and terminology.
+
+The document is methodology, not student data, so sending it to the cloud
+alongside the anonymized score is consistent with the privacy model. It is
+capped at `config.KNOWLEDGE_MAX_CHARS` characters per request.
+
 ### Run the tests
 
 ```bash

@@ -150,6 +150,7 @@ BUNDLED_ARTIFACTS_DIR = _bundle_dir() / "artifacts"
 MODEL_FILENAME = "risk_model.json"
 MODEL_META_FILENAME = "risk_model.meta.json"
 DB_FILENAME = "risk_app.db"
+SETTINGS_FILENAME = "settings.json"
 
 
 def bundled_model_path() -> Path:
@@ -172,6 +173,10 @@ def database_path() -> Path:
     return user_data_dir() / DB_FILENAME
 
 
+def settings_path() -> Path:
+    return user_data_dir() / SETTINGS_FILENAME
+
+
 # --- LLM (optional cloud step) ---------------------------------------------
 LLM_MODEL = "claude-opus-4-8"
 # Generous headroom: with adaptive thinking, reasoning tokens share this budget.
@@ -179,6 +184,10 @@ LLM_MAX_TOKENS = 4000
 # Environment variable the app reads for the API key. If unset, the app stays
 # fully functional and uses the local template action-plan generator.
 LLM_API_KEY_ENV = "ANTHROPIC_API_KEY"
+# Cap on how much knowledge-base text is sent to the cloud (keeps token cost
+# bounded); the stored document is truncated to this many characters at prompt
+# build time only.
+KNOWLEDGE_MAX_CHARS = 24000
 
 
 # --- Training (synthetic SIIIR-like data) ----------------------------------
