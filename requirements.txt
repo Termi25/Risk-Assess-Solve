@@ -1,0 +1,26 @@
+# --- Runtime dependencies for the proof-of-concept ---
+#
+# The scoring/explainability core runs the SAME machine-learning stack described
+# in the research methodology (XGBoost + SMOTE-NC + SHAP). No LLM is used to
+# *simulate* model output — the numbers come from a real trained classifier.
+
+# Numeric / data
+numpy>=1.26
+pandas>=2.1
+scikit-learn>=1.3
+
+# Risk model + class-imbalance correction (the "Day 14" early-warning model)
+xgboost>=2.0
+imbalanced-learn>=0.12        # provides SMOTE-NC
+
+# Genuine explainability (TreeExplainer over the real XGBoost model)
+shap>=0.44
+
+# Desktop GUI (LGPL). Only the graphical layer needs this; the ML/DB core does not.
+PySide6>=6.6,<6.9
+
+# Optional cloud step: turns the computed score + SHAP explanation into the
+# written "Proiectul Podul" intervention plan. The app is fully functional
+# offline without it — llm_client imports it lazily and falls back to a local
+# template when it is unavailable or no API key is configured.
+anthropic>=0.40

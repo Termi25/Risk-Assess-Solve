@@ -1,0 +1,6 @@
+# Development / build / reporting tooling
+-r requirements.txt
+
+pytest>=8.0
+pyinstaller>=6.6
+matplotlib>=3.7        # only for the research-style SHAP summary plot (train.py --plot)

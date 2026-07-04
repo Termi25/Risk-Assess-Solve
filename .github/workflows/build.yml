@@ -1,0 +1,68 @@
+name: Build Windows EXE
+
+on:
+  push:
+    branches: [main, master]
+    tags: ["v*"]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: write        # needed to attach the exe to a GitHub Release on tags
+
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      PYTHONUTF8: "1"    # so Romanian console output doesn't crash on cp1252
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Run tests
+        run: python -m pytest -q
+
+      - name: Train and bundle the model
+        run: python train.py --plot shap_summary.png
+
+      - name: Build executable (PyInstaller)
+        run: pyinstaller --noconfirm RiskSolvingApp.spec
+
+      - name: Smoke-test the packaged exe
+        shell: bash
+        env:
+          RISKAPP_SELFTEST: "1"
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          ./dist/RiskSolvingApp.exe | tee selftest.txt
+          grep -q "assess OK" selftest.txt
+
+      - name: Upload EXE artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RiskSolvingApp-windows
+          path: |
+            dist/RiskSolvingApp.exe
+            shap_summary.png
+          if-no-files-found: error
+
+      - name: Attach EXE to release (tags only)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/RiskSolvingApp.exe
+            shap_summary.png
