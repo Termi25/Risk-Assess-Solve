@@ -7,7 +7,6 @@ All heavy imports (xgboost / shap / anthropic) live behind the service.
 
 from __future__ import annotations
 
-import os
 import traceback
 
 from PySide6.QtCore import Qt, QThread, Signal
@@ -204,9 +203,15 @@ class MainWindow(QMainWindow):
 
     # --- helpers -----------------------------------------------------------
     def _refresh_llm_status(self) -> None:
-        has_key = bool(os.environ.get(config.LLM_API_KEY_ENV, "").strip())
-        mode = "cloud (Claude)" if has_key else "local (offline)"
-        from .. import settings
+        from .. import keystore, settings
+        provider = config.get_provider(settings.get_active_provider())
+        source = keystore.key_source(provider.id)
+        if source == "env":
+            mode = f"cloud ({provider.label}) — cheie din variabila de mediu"
+        elif source == "stored":
+            mode = f"cloud ({provider.label}) — cheie salvată"
+        else:
+            mode = "local (offline)"
         kb = settings.get_knowledge()
         kb_note = f" • bază de cunoștințe: {kb['filename']}" if kb else ""
         self.plan_source.setText(f"Sursă plan: se va folosi modul {mode}.{kb_note}")

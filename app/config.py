@@ -178,12 +178,56 @@ def settings_path() -> Path:
 
 
 # --- LLM (optional cloud step) ---------------------------------------------
-LLM_MODEL = "claude-opus-4-8"
 # Generous headroom: with adaptive thinking, reasoning tokens share this budget.
 LLM_MAX_TOKENS = 4000
-# Environment variable the app reads for the API key. If unset, the app stays
-# fully functional and uses the local template action-plan generator.
-LLM_API_KEY_ENV = "ANTHROPIC_API_KEY"
+
+
+@dataclass(frozen=True)
+class LLMProvider:
+    """One cloud action-plan provider (Claude or Gemini)."""
+
+    id: str            # stable key: "claude" | "gemini"
+    label: str         # human-readable name for the GUI
+    env_var: str       # environment variable checked for an override key
+    key_prefix: str    # placeholder hint shown in the settings dialog
+    default_model: str # model used for generation
+
+    @property
+    def keyring_service(self) -> str:
+        """OS-vault service name — one entry per provider."""
+        return f"{APP_NAME}/{self.id}"
+
+
+# The app works with either provider; the active one is chosen in Settings.
+LLM_PROVIDERS: tuple[LLMProvider, ...] = (
+    LLMProvider(
+        id="claude",
+        label="Claude (Anthropic)",
+        env_var="ANTHROPIC_API_KEY",
+        key_prefix="sk-ant-…",
+        default_model="claude-opus-4-8",
+    ),
+    LLMProvider(
+        id="gemini",
+        label="Gemini (Google)",
+        env_var="GEMINI_API_KEY",
+        key_prefix="AIza…",
+        default_model="gemini-2.5-pro",
+    ),
+)
+DEFAULT_LLM_PROVIDER = "claude"
+# Shared username under each provider's keyring service entry. The key is kept
+# in the OS credential vault (Windows Credential Manager), never in settings.json.
+LLM_KEYRING_USERNAME = "api_key"
+
+
+def get_provider(provider_id: str) -> LLMProvider:
+    for p in LLM_PROVIDERS:
+        if p.id == provider_id:
+            return p
+    raise KeyError(provider_id)
+
+
 # Cap on how much knowledge-base text is sent to the cloud (keeps token cost
 # bounded); the stored document is truncated to this many characters at prompt
 # build time only.

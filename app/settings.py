@@ -35,6 +35,26 @@ def save_settings(data: dict) -> None:
     )
 
 
+# --- LLM provider -----------------------------------------------------------
+# Which cloud provider (Claude / Gemini) the app uses. This is a preference,
+# not a secret, so it lives in settings.json; the API keys live in the OS vault.
+def get_active_provider() -> str:
+    """Return the configured provider id, defaulting if unset/unknown."""
+    pid = load_settings().get("llm_provider", config.DEFAULT_LLM_PROVIDER)
+    try:
+        config.get_provider(pid)
+    except KeyError:
+        return config.DEFAULT_LLM_PROVIDER
+    return pid
+
+
+def set_active_provider(provider_id: str) -> None:
+    config.get_provider(provider_id)  # validate before persisting
+    data = load_settings()
+    data["llm_provider"] = provider_id
+    save_settings(data)
+
+
 # --- Knowledge base ---------------------------------------------------------
 def get_knowledge() -> Optional[dict]:
     """Return the stored knowledge-base metadata + text, or None."""

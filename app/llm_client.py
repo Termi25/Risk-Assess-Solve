@@ -6,17 +6,16 @@ score, the risk band, the sub-scores, and the SHAP feature attributions. No
 student name, no free-text observation, no identifiers ever leave the machine.
 
 Behaviour:
-  * If the Anthropic SDK is installed *and* an API key is configured, the plan
-    is written by Claude ("Planul de Intervenție: Proiectul Podul").
+  * If the active provider's SDK is installed *and* an API key is configured,
+    the plan is written in the cloud by Claude (Anthropic) or Gemini (Google) —
+    whichever is selected in Settings ("Planul de Intervenție: Proiectul Podul").
   * Otherwise the app stays fully functional and produces the same plan from a
     local template. The two paths are interchangeable from the UI's view.
 """
 
 from __future__ import annotations
 
-import os
-
-from . import config
+from . import config, keystore
 from .models import RiskEvaluation
 
 
@@ -141,23 +140,28 @@ def _build_system_prompt(knowledge_text: str | None) -> str:
     )
 
 
-def _cloud_plan(
-    evaluation: RiskEvaluation, api_key: str, knowledge_text: str | None = None
-) -> str:
-    """Generate the plan with Claude. Raises on any SDK/API error."""
-    import anthropic  # lazy: keeps the app usable when the SDK is absent
-
-    client = anthropic.Anthropic(api_key=api_key)
-    user_msg = (
+def _user_message(evaluation: RiskEvaluation) -> str:
+    """The de-identified prompt sent to whichever provider is active."""
+    return (
         "Redactează planul «Proiectul Podul» pe baza următoarei evaluări "
         "anonimizate:\n\n" + anonymized_summary(evaluation)
     )
+
+
+def _claude_plan(
+    evaluation: RiskEvaluation, model: str, api_key: str,
+    knowledge_text: str | None,
+) -> str:
+    """Generate the plan with Claude (Anthropic). Raises on any SDK/API error."""
+    import anthropic  # lazy: keeps the app usable when the SDK is absent
+
+    client = anthropic.Anthropic(api_key=api_key)
     response = client.messages.create(
-        model=config.LLM_MODEL,
+        model=model,
         max_tokens=config.LLM_MAX_TOKENS,
         thinking={"type": "adaptive"},
         system=_build_system_prompt(knowledge_text),
-        messages=[{"role": "user", "content": user_msg}],
+        messages=[{"role": "user", "content": _user_message(evaluation)}],
     )
     text = "".join(
         block.text for block in response.content if getattr(block, "type", "") == "text"
@@ -167,22 +171,67 @@ def _cloud_plan(
     return text
 
 
+def _gemini_plan(
+    evaluation: RiskEvaluation, model: str, api_key: str,
+    knowledge_text: str | None,
+) -> str:
+    """Generate the plan with Gemini (Google). Raises on any SDK/API error."""
+    from google import genai  # lazy: keeps the app usable when the SDK is absent
+    from google.genai import types
+
+    client = genai.Client(api_key=api_key)
+    response = client.models.generate_content(
+        model=model,
+        contents=_user_message(evaluation),
+        config=types.GenerateContentConfig(
+            system_instruction=_build_system_prompt(knowledge_text),
+            max_output_tokens=config.LLM_MAX_TOKENS,
+        ),
+    )
+    text = (response.text or "").strip()
+    if not text:
+        raise RuntimeError("Răspuns gol de la model.")
+    return text
+
+
+# Dispatch table: one cloud backend per provider id (see config.LLM_PROVIDERS).
+_CLOUD_BACKENDS = {
+    "claude": _claude_plan,
+    "gemini": _gemini_plan,
+}
+
+
+def _cloud_plan(
+    evaluation: RiskEvaluation, provider: config.LLMProvider, api_key: str,
+    knowledge_text: str | None = None,
+) -> str:
+    """Generate the plan via ``provider``. Raises on any SDK/API error."""
+    backend = _CLOUD_BACKENDS[provider.id]
+    return backend(evaluation, provider.default_model, api_key, knowledge_text)
+
+
 def generate_action_plan(
     evaluation: RiskEvaluation,
+    provider_id: str | None = None,
     api_key: str | None = None,
     knowledge_text: str | None = None,
 ) -> tuple[str, str]:
     """Return (plan_text, source). Never raises — falls back to the template.
 
-    ``knowledge_text`` (optional) is the user's imported .docx knowledge base;
-    when present it grounds the cloud generation. It is not used by the local
-    template (which is rule-based).
+    ``provider_id`` selects the cloud backend; when ``None`` the provider chosen
+    in Settings is used. ``knowledge_text`` (optional) is the user's imported
+    .docx knowledge base; when present it grounds the cloud generation. It is
+    not used by the local template (which is rule-based).
     """
-    key = api_key or os.environ.get(config.LLM_API_KEY_ENV, "").strip()
+    from . import settings  # lazy: avoids an import cycle at module load
+
+    pid = provider_id or settings.get_active_provider()
+    provider = config.get_provider(pid)
+    key = api_key or keystore.resolve_api_key(pid)
     if key:
         try:
-            plan = _cloud_plan(evaluation, key, knowledge_text)
-            source = "cloud (Claude)"
+            plan = _cloud_plan(evaluation, provider, key, knowledge_text)
+            source = f"cloud ({provider.label})"
             if knowledge_text:
                 source += " + bază de cunoștințe"
             return plan, source

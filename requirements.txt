@@ -24,3 +24,14 @@ PySide6>=6.6,<6.9
 # offline without it — llm_client imports it lazily and falls back to a local
 # template when it is unavailable or no API key is configured.
 anthropic>=0.40
+
+# Secure storage for the optional cloud API keys: the key entered in the
+# settings dialog is saved to the OS credential vault (Windows Credential
+# Manager) rather than to plaintext settings. On Windows this transitively
+# pulls in pywin32-ctypes, which the Windows backend uses.
+keyring>=24
+
+# Alternative cloud provider: Google Gemini. Same optional role as anthropic —
+# imported lazily by llm_client; the app falls back to the local template when
+# it is absent or no key is configured. The active provider is chosen in Settings.
+google-genai>=1.0

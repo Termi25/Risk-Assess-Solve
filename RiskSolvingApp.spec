@@ -13,7 +13,7 @@ Build locally with:  pyinstaller RiskSolvingApp.spec
 
 import os
 from PyInstaller.utils.hooks import (
-    collect_all, collect_data_files, collect_dynamic_libs,
+    collect_all, collect_data_files, collect_dynamic_libs, copy_metadata,
 )
 
 block_cipher = None
@@ -36,11 +36,25 @@ datas += collect_data_files("xgboost")
 binaries += collect_dynamic_libs("xgboost")
 
 # These packages ship data files / lazy imports the default analysis can miss.
-for pkg in ("shap", "imblearn", "sklearn", "anthropic"):
+# The cloud SDKs (anthropic, google.genai) are imported lazily inside
+# llm_client, so collect_all is what actually pulls them into the bundle.
+for pkg in ("shap", "imblearn", "sklearn", "anthropic", "keyring", "google.genai"):
     pkg_datas, pkg_binaries, pkg_hidden = collect_all(pkg)
     datas += pkg_datas
     binaries += pkg_binaries
     hiddenimports += pkg_hidden
+
+# keyring discovers its OS backend via importlib.metadata entry points, which
+# PyInstaller can miss — bundle its package metadata and pin the Windows backend
+# (plus the pywin32-ctypes module it relies on) explicitly.
+datas += copy_metadata("keyring")
+hiddenimports += [
+    "keyring.backends.Windows",
+    "keyring.backends.chainer",
+    "keyring.backends.fail",
+    "win32ctypes.core",
+    "win32ctypes.core.ctypes",
+]
 
 a = Analysis(
     ["run.py"],
