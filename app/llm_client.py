@@ -23,8 +23,9 @@ SYSTEM_PROMPT = (
     "Ești un consilier educațional expert în prevenția abandonului școlar. "
     "Pe baza unui scor de risc calculat local și a unei explicații xAI (SHAP), "
     "redactezi un plan de intervenție numit «Proiectul Podul», concret și "
-    "acționabil pentru un cadru didactic. NU primești date personale despre elev "
-    "(nume, observații brute) — lucrezi exclusiv cu scorul și factorii numerici. "
+    "acționabil pentru un cadru didactic. Primești și un rezumat structurat al "
+    "chestionarului, dar nu primești nume, școală sau data nașterii exacte. "
+    "NU inventezi date lipsă — lucrezi cu scorul și factorii numerici deja calculați. "
     "Structura obligatorie a răspunsului (în limba română, fără preambul):\n"
     "1. Rezumatul riscului (2–3 propoziții).\n"
     "2. Contract educațional (angajamente reciproce elev–profesor–familie).\n"
@@ -39,31 +40,120 @@ _INTERVENTIONS: dict[str, str] = {
     "Absente_Nemotivate_Zilele_1_13":
         "Monitorizare zilnică a prezenței, alertă la 3 absențe, contactarea "
         "familiei și desemnarea unui mentor de prezență.",
+    "Absente_Motivate_3_Luni":
+        "Revizuirea motivărilor și recuperarea conținutului ratat prin plan "
+        "de sprijin și calendar scurt de follow-up.",
     "Medie_Modul_Anterior":
         "Plan individualizat de recuperare la disciplinele-cheie și ore de "
         "sprijin (meditații / peer-tutoring).",
-    "Note_Sub_7":
-        "Program de remediere pe competențele deficitare, cu evaluări formative "
-        "săptămânale și feedback pozitiv.",
+    "Note_Sub_5":
+        "Program de remediere pe disciplinele în care apar note sub 5, cu "
+        "retestare scurtă și feedback imediat.",
     "Studentship_Score":
         "Activități de responsabilizare și implicare (roluri în clasă, proiecte "
         "de grup, sistem „buddy”) pentru creșterea sentimentului de apartenență.",
     "Stres_Emotional_NLP":
         "Sesiuni cu consilierul școlar, discuții individuale periodice și "
         "monitorizarea stării emoționale.",
-    "Vulnerabilitate_Financiara":
-        "Sprijin material (rechizite, bursă, program „masă caldă”) și orientare "
-        "către serviciile sociale locale.",
-    "Parinti_In_Strainatate":
-        "Implicarea tutorelui legal / familiei extinse și canal de comunicare "
-        "regulat cu părinții aflați la distanță.",
     "Mediu_Rezidential":
         "Facilitarea accesului (transport, resurse digitale) și activități de "
         "integrare pentru elevii navetiști.",
+    "Situatie_Familiala":
+        "Implicarea tutorelui legal / familiei extinse și un canal de comunicare "
+        "constant cu adultul de sprijin.",
+    "Educatie_Mama":
+        "Mesaje și materiale de sprijin adaptate nivelului de înțelegere al "
+        "familiei, cu pași foarte concreți.",
+    "Educatie_Tata":
+        "Mesaje și materiale de sprijin adaptate nivelului de înțelegere al "
+        "familiei, cu pași foarte concreți.",
+    "Participare_Extrascolara":
+        "Reactivarea interesului printr-o activitate extrașcolară scurtă, "
+        "aleasă împreună cu elevul.",
+    "Atitudine_Scoala":
+        "Discuții de tip coaching, obiective scurte și întărire pozitivă la "
+        "fiecare progres observabil.",
+    "Sanctiuni_Avertismente":
+        "Contract comportamental, reguli puține și clare și monitorizare "
+        "săptămânală a respectării lor.",
+    "Cum_te_Simti_La_Scoala":
+        "Sprijin emoțional țintit și verificări scurte de stare, ideal în tandem "
+        "cu dirigintele și consilierul.",
+    "Scoala_Ajuta_Obiective":
+        "Legarea directă a sarcinilor școlare de obiective personale concrete, "
+        "ca elevul să vadă utilitatea muncii depuse.",
 }
 
 
-def anonymized_summary(evaluation: RiskEvaluation) -> str:
+_SAFE_CONTEXT_KEYS = (
+    ("Age_Years", "Vârsta aproximativă"),
+    ("Sex", "Sex"),
+    ("Mediu_Rezidential", "Mediul de proveniență"),
+    ("Situatie_Familiala", "Situația familială"),
+    ("Educatie_Mama", "Educația mamei"),
+    ("Educatie_Tata", "Educația tatălui"),
+    ("Absente_Nemotivate_Zilele_1_13", "Absențe nemotivate"),
+    ("Absente_Motivate_3_Luni", "Absențe motivate"),
+    ("Participare_Extrascolara", "Participare extrașcolară"),
+    ("Medie_Modul_Anterior", "Media modulului anterior"),
+    ("Note_Sub_5", "Număr note sub 5"),
+    ("Studentship_Score", "Scor Studentship"),
+    ("Atitudine_Scoala", "Atitudinea față de școală"),
+    ("Sanctiuni_Avertismente", "Sancțiuni / avertismente"),
+    ("Cum_te_Simti_La_Scoala", "Cum se simte la școală"),
+    ("Scoala_Ajuta_Obiective", "Școala ajută obiectivele"),
+)
+
+
+def _trim_text(value: object, limit: int = 160) -> str:
+    text = str(value).strip()
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1].rstrip() + "…"
+
+
+def _questionnaire_context_lines(questionnaire_answers: dict | None) -> list[str]:
+    if not questionnaire_answers:
+        return []
+    from .scoring_engine import compose_model_features
+
+    features = compose_model_features(questionnaire_answers)
+    lines: list[str] = []
+    for key, label in _SAFE_CONTEXT_KEYS:
+        value = features.get(key)
+        if value in (None, ""):
+            continue
+        if key == "Age_Years":
+            lines.append(f"  - {label}: {int(round(float(value)))} ani")
+        elif key == "Medie_Modul_Anterior":
+            lines.append(f"  - {label}: {float(value):.1f}")
+        elif key == "Studentship_Score":
+            lines.append(f"  - {label}: {float(value):.1f} / 10")
+        else:
+            lines.append(f"  - {label}: {value}")
+    return lines
+
+
+def _local_context_lines(questionnaire_answers: dict | None, observation_text: str | None) -> list[str]:
+    lines = _questionnaire_context_lines(questionnaire_answers)
+    if questionnaire_answers:
+        for key, label in (
+            ("family_situation_other", "Situație familială - detalii"),
+            ("low_grades_details", "Note sub 5 - detalii"),
+            ("school_feeling_other", "Cum se simte la școală - detalii"),
+            ("additional_notes", "Observații suplimentare"),
+        ):
+            value = questionnaire_answers.get(key)
+            if value not in (None, ""):
+                lines.append(f"  - {label}: {_trim_text(value)}")
+    if observation_text:
+        lines.append(f"  - Text observational: {_trim_text(observation_text)}")
+    return lines
+
+
+def anonymized_summary(
+    evaluation: RiskEvaluation, questionnaire_answers: dict | None = None
+) -> str:
     """De-identified structured summary — the only thing sent to the cloud."""
     lines = [
         f"Scor agregat de risc: {evaluation.aggregate_score:.1f}% "
@@ -80,12 +170,22 @@ def anonymized_summary(evaluation: RiskEvaluation) -> str:
     lines.append("Ponderea domeniilor în explicație:")
     for s in evaluation.sub_scores:
         lines.append(f"  - {s.name}: {s.value:.0f}%")
+    context_lines = _questionnaire_context_lines(questionnaire_answers)
+    if context_lines:
+        lines.append("")
+        lines.append("Context chestionar (anonimizat):")
+        lines.extend(context_lines)
     return "\n".join(lines)
 
 
-def _local_plan(evaluation: RiskEvaluation) -> str:
-    summary = anonymized_summary(evaluation)
+def _local_plan(
+    evaluation: RiskEvaluation,
+    questionnaire_answers: dict | None = None,
+    observation_text: str | None = None,
+) -> str:
+    summary = anonymized_summary(evaluation, questionnaire_answers)
     risky = [a for a in evaluation.top_drivers(4) if a.shap_value > 0][:3]
+    context_lines = _local_context_lines(questionnaire_answers, observation_text)
 
     parts: list[str] = []
     parts.append("PLANUL DE INTERVENȚIE: PROIECTUL PODUL")
@@ -114,6 +214,11 @@ def _local_plan(evaluation: RiskEvaluation) -> str:
             parts.append(f"   • {a.label} (+{a.points} pp): {action}")
     else:
         parts.append("   • Menținerea măsurilor curente și monitorizare de rutină.")
+    if context_lines:
+        parts.append("")
+        parts.append("   Context relevant din chestionar")
+        for line in context_lines:
+            parts.append(f"   {line}")
     parts.append("")
     parts.append("4. Indicatori de succes pe 4 săptămâni")
     parts.append("   - Săpt. 1: 0 absențe nemotivate noi; semnarea contractului.")
@@ -140,17 +245,20 @@ def _build_system_prompt(knowledge_text: str | None) -> str:
     )
 
 
-def _user_message(evaluation: RiskEvaluation) -> str:
+def _user_message(
+    evaluation: RiskEvaluation, questionnaire_answers: dict | None = None
+) -> str:
     """The de-identified prompt sent to whichever provider is active."""
     return (
         "Redactează planul «Proiectul Podul» pe baza următoarei evaluări "
-        "anonimizate:\n\n" + anonymized_summary(evaluation)
+        "anonimizate:\n\n" + anonymized_summary(evaluation, questionnaire_answers)
     )
 
 
 def _claude_plan(
     evaluation: RiskEvaluation, model: str, api_key: str,
     knowledge_text: str | None,
+    questionnaire_answers: dict | None = None,
 ) -> str:
     """Generate the plan with Claude (Anthropic). Raises on any SDK/API error."""
     import anthropic  # lazy: keeps the app usable when the SDK is absent
@@ -161,7 +269,7 @@ def _claude_plan(
         max_tokens=config.LLM_MAX_TOKENS,
         thinking={"type": "adaptive"},
         system=_build_system_prompt(knowledge_text),
-        messages=[{"role": "user", "content": _user_message(evaluation)}],
+        messages=[{"role": "user", "content": _user_message(evaluation, questionnaire_answers)}],
     )
     text = "".join(
         block.text for block in response.content if getattr(block, "type", "") == "text"
@@ -174,6 +282,7 @@ def _claude_plan(
 def _gemini_plan(
     evaluation: RiskEvaluation, model: str, api_key: str,
     knowledge_text: str | None,
+    questionnaire_answers: dict | None = None,
 ) -> str:
     """Generate the plan with Gemini (Google). Raises on any SDK/API error."""
     from google import genai  # lazy: keeps the app usable when the SDK is absent
@@ -182,7 +291,7 @@ def _gemini_plan(
     client = genai.Client(api_key=api_key)
     response = client.models.generate_content(
         model=model,
-        contents=_user_message(evaluation),
+        contents=_user_message(evaluation, questionnaire_answers),
         config=types.GenerateContentConfig(
             system_instruction=_build_system_prompt(knowledge_text),
             max_output_tokens=config.LLM_MAX_TOKENS,
@@ -204,10 +313,11 @@ _CLOUD_BACKENDS = {
 def _cloud_plan(
     evaluation: RiskEvaluation, provider: config.LLMProvider, api_key: str,
     knowledge_text: str | None = None,
+    questionnaire_answers: dict | None = None,
 ) -> str:
     """Generate the plan via ``provider``. Raises on any SDK/API error."""
     backend = _CLOUD_BACKENDS[provider.id]
-    return backend(evaluation, provider.default_model, api_key, knowledge_text)
+    return backend(evaluation, provider.default_model, api_key, knowledge_text, questionnaire_answers)
 
 
 def generate_action_plan(
@@ -215,6 +325,8 @@ def generate_action_plan(
     provider_id: str | None = None,
     api_key: str | None = None,
     knowledge_text: str | None = None,
+    questionnaire_answers: dict | None = None,
+    observation_text: str | None = None,
 ) -> tuple[str, str]:
     """Return (plan_text, source). Never raises — falls back to the template.
 
@@ -230,16 +342,16 @@ def generate_action_plan(
     key = api_key or keystore.resolve_api_key(pid)
     if key:
         try:
-            plan = _cloud_plan(evaluation, provider, key, knowledge_text)
+            plan = _cloud_plan(evaluation, provider, key, knowledge_text, questionnaire_answers)
             source = f"cloud ({provider.label})"
             if knowledge_text:
                 source += " + bază de cunoștințe"
             return plan, source
         except Exception as exc:  # offline-first: degrade gracefully
-            plan = _local_plan(evaluation)
+            plan = _local_plan(evaluation, questionnaire_answers, observation_text)
             note = (
                 "\n\n[Notă: generarea în cloud a eșuat "
                 f"({type(exc).__name__}); s-a folosit planul local.]"
             )
             return plan + note, "local template (cloud indisponibil)"
-    return _local_plan(evaluation), "local template"
+    return _local_plan(evaluation, questionnaire_answers, observation_text), "local template"

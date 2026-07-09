@@ -7,13 +7,14 @@ All heavy imports (xgboost / shap / anthropic) live behind the service.
 
 from __future__ import annotations
 
+from datetime import datetime
 import traceback
 
-from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtCore import QDate, Qt, QThread, Signal
 from PySide6.QtGui import QAction, QFont
 from PySide6.QtWidgets import (
-    QComboBox, QDoubleSpinBox, QFormLayout, QGroupBox, QHBoxLayout, QLabel,
-    QLineEdit, QMainWindow, QMessageBox, QPlainTextEdit, QPushButton,
+    QComboBox, QDateEdit, QDoubleSpinBox, QFormLayout, QGroupBox, QHBoxLayout,
+    QLabel, QLineEdit, QMainWindow, QMessageBox, QPlainTextEdit, QPushButton,
     QScrollArea, QSpinBox, QSplitter, QTextBrowser, QVBoxLayout, QWidget,
 )
 
@@ -39,20 +40,52 @@ class FnWorker(QThread):
         except Exception as exc:  # surfaced to the UI, never crashes the app
             self.failed.emit(f"{type(exc).__name__}: {exc}\n\n{traceback.format_exc()}")
 
-
-_DEMO_CASE = {
-    "Medie_Modul_Anterior": 4.3,
-    "Note_Sub_7": 4,
-    "Absente_Nemotivate_Zilele_1_13": 12,
-    "Studentship_Score": 2,
-    "Mediu_Rezidential": "Rural",
-    "Parinti_In_Strainatate": "Da",
-    "Vulnerabilitate_Financiara": "Ridicata",
+_DEMO_ANSWERS = {
+    "full_name": "Popescu Andrei",
+    "birth_date": "2009-05-14",
+    "student_class": "IX A",
+    "school_name": "Liceul Tehnologic",
+    "sex": "Masculin",
+    "residential_environment": "Rural",
+    "family_situation": "Monoparental",
+    "family_situation_other": "",
+    "mother_education": "Gimnazial",
+    "father_education": "Primar",
+    "unexcused_absences_3m": 12,
+    "excused_absences_3m": 4,
+    "extracurricular_participation": "Nu",
+    "previous_module_average": 4.3,
+    "low_grades_details": "4 Matematică; 3 Română; 2 Istorie",
+    "school_attitude": "Negativă",
+    "disciplinary_sanctions": "Avertismente",
+    "school_feeling": "Stresat",
+    "school_feeling_other": "Se simte copleșit de cerințe.",
+    "school_support_goal": "Nu",
+    "additional_notes": "Elevul este retras și obosit în ultima perioadă, refuză să participe la activități și pare demotivat.",
 }
-_DEMO_TEXT = (
-    "Elevul este retras și obosit în ultima perioadă, refuză să participe la "
-    "activități și pare demotivat. Lipsește frecvent."
-)
+
+
+def _split_full_name(full_name: str) -> tuple[str, str]:
+    parts = [part for part in full_name.split() if part]
+    if not parts:
+        return "", ""
+    if len(parts) == 1:
+        return parts[0], ""
+    return parts[0], " ".join(parts[1:])
+
+
+def _compose_observation_text(answers: dict[str, object]) -> str:
+    parts: list[str] = []
+    for key, label in (
+        ("family_situation_other", "Situație familială - detalii"),
+        ("low_grades_details", "Note sub 5 - detalii"),
+        ("school_feeling_other", "Cum se simte la școală - detalii"),
+        ("additional_notes", "Observații suplimentare"),
+    ):
+        value = answers.get(key)
+        if value not in (None, ""):
+            parts.append(f"{label}: {value}")
+    return "\n".join(parts).strip()
 
 
 class MainWindow(QMainWindow):
@@ -65,7 +98,7 @@ class MainWindow(QMainWindow):
         self.current_case: StudentCase | None = None
         self.current_result: AssessmentResult | None = None
         self._workers: list[FnWorker] = []
-        self._feature_widgets: dict[str, QWidget] = {}
+        self._question_widgets: dict[str, QWidget] = {}
 
         self._build_menu()
         self._build_ui()
@@ -91,6 +124,59 @@ class MainWindow(QMainWindow):
         act_about.triggered.connect(self._on_about)
         help_menu.addAction(act_about)
 
+    def _make_question_widget(self, item: config.QuestionnaireItem) -> QWidget:
+        if item.key == "timestamp":
+            label = QLabel(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            label.setStyleSheet("color:#555;")
+            return label
+        if item.kind == "date":
+            widget = QDateEdit()
+            widget.setCalendarPopup(True)
+            if isinstance(item.default, str) and item.default:
+                qdate = QDate.fromString(item.default, "yyyy-MM-dd")
+                widget.setDate(qdate if qdate.isValid() else QDate.currentDate())
+            else:
+                widget.setDate(QDate.currentDate())
+            return widget
+        if item.kind == "categorical":
+            widget = QComboBox()
+            widget.addItems(list(item.categories))
+            return widget
+        if item.kind == "multiline":
+            widget = QPlainTextEdit()
+            widget.setFixedHeight(72)
+            return widget
+        if item.step < 1:
+            widget = QDoubleSpinBox()
+            widget.setRange(item.minimum, item.maximum)
+            widget.setSingleStep(item.step)
+            widget.setDecimals(1)
+            widget.setValue(float(item.default or 0.0))
+            return widget
+        widget = QSpinBox()
+        widget.setRange(int(item.minimum), int(item.maximum))
+        widget.setSingleStep(int(item.step))
+        widget.setValue(int(item.default or 0))
+        return widget
+
+    def _question_value(self, key: str):
+        widget = self._question_widgets[key]
+        if isinstance(widget, QComboBox):
+            return widget.currentText()
+        if isinstance(widget, QDateEdit):
+            return widget.date().toString("yyyy-MM-dd")
+        if isinstance(widget, QDoubleSpinBox):
+            return float(widget.value())
+        if isinstance(widget, QSpinBox):
+            return int(widget.value())
+        if isinstance(widget, QPlainTextEdit):
+            return widget.toPlainText().strip()
+        if isinstance(widget, QLineEdit):
+            return widget.text().strip()
+        if isinstance(widget, QLabel):
+            return widget.text().strip()
+        return ""
+
     def _build_ui(self) -> None:
         splitter = QSplitter(Qt.Horizontal)
 
@@ -98,54 +184,37 @@ class MainWindow(QMainWindow):
         form_widget = QWidget()
         form_layout = QVBoxLayout(form_widget)
 
-        identity = QGroupBox("Date elev (rămân doar local)")
+        identity = QGroupBox("Date de identificare (rămân doar local)")
         idl = QFormLayout(identity)
-        self.in_surname = QLineEdit()
-        self.in_name = QLineEdit()
-        self.in_grade = QLineEdit()
-        self.in_school = QLineEdit()
-        idl.addRow("Nume", self.in_surname)
-        idl.addRow("Prenume", self.in_name)
-        idl.addRow("Clasa", self.in_grade)
-        idl.addRow("Școala", self.in_school)
+        identity_fields = {
+            "full_name",
+            "birth_date",
+            "student_class",
+            "school_name",
+        }
+        for item in config.QUESTIONNAIRE_FIELDS:
+            if item.key not in identity_fields:
+                continue
+            widget = self._make_question_widget(item)
+            self._question_widgets[item.key] = widget
+            idl.addRow(item.label, widget)
+        timestamp = next(q for q in config.QUESTIONNAIRE_FIELDS if q.key == "timestamp")
+        idl.addRow(timestamp.label, self._make_question_widget(timestamp))
         form_layout.addWidget(identity)
 
-        features_box = QGroupBox("Indicatori „Day 14”")
-        fl = QFormLayout(features_box)
-        for feat in config.FEATURES:
-            if feat.key == "Stres_Emotional_NLP":
-                continue  # derived from the observation text
-            if feat.kind == "categorical":
-                widget = QComboBox()
-                widget.addItems(list(feat.categories))
-            elif feat.step < 1:
-                widget = QDoubleSpinBox()
-                widget.setRange(feat.minimum, feat.maximum)
-                widget.setSingleStep(feat.step)
-                widget.setDecimals(1)
-                widget.setValue(feat.default)
-            else:
-                widget = QSpinBox()
-                widget.setRange(int(feat.minimum), int(feat.maximum))
-                widget.setSingleStep(int(feat.step))
-                widget.setValue(int(feat.default))
-            widget.setToolTip(feat.help_text)
-            self._feature_widgets[feat.key] = widget
-            fl.addRow(feat.label, widget)
-        form_layout.addWidget(features_box)
-
-        obs_box = QGroupBox("Observații calitative (analizate NLP)")
-        obs_layout = QVBoxLayout(obs_box)
-        self.in_observation = QPlainTextEdit()
-        self.in_observation.setPlaceholderText(
-            "Ex: elevul este retras, obosit, refuză să participe…"
-        )
-        self.in_observation.setFixedHeight(90)
+        questionnaire_box = QGroupBox("Chestionar complet")
+        ql = QFormLayout(questionnaire_box)
+        for item in config.QUESTIONNAIRE_FIELDS:
+            if item.key in identity_fields or item.key == "timestamp":
+                continue
+            widget = self._make_question_widget(item)
+            widget.setToolTip(item.help_text)
+            self._question_widgets[item.key] = widget
+            ql.addRow(item.label, widget)
         self.lbl_stress = QLabel("Stres emoțional (NLP): — (se calculează la evaluare)")
         self.lbl_stress.setStyleSheet("color:#555;")
-        obs_layout.addWidget(self.in_observation)
-        obs_layout.addWidget(self.lbl_stress)
-        form_layout.addWidget(obs_box)
+        ql.addRow(self.lbl_stress)
+        form_layout.addWidget(questionnaire_box)
 
         # Buttons
         btn_row = QHBoxLayout()
@@ -222,37 +291,55 @@ class MainWindow(QMainWindow):
         self._refresh_llm_status()
 
     def _fill_demo(self) -> None:
-        self.in_surname.setText("Popescu")
-        self.in_name.setText("Andrei")
-        self.in_grade.setText("IX A")
-        self.in_school.setText("Liceul Tehnologic")
-        for key, val in _DEMO_CASE.items():
-            w = self._feature_widgets[key]
+        for key, val in _DEMO_ANSWERS.items():
+            w = self._question_widgets[key]
             if isinstance(w, QComboBox):
                 w.setCurrentText(str(val))
+            elif isinstance(w, QDateEdit):
+                qdate = QDate.fromString(str(val), "yyyy-MM-dd")
+                w.setDate(qdate if qdate.isValid() else QDate.currentDate())
+            elif isinstance(w, QLineEdit):
+                w.setText(str(val))
+            elif isinstance(w, QPlainTextEdit):
+                w.setPlainText(str(val))
             elif isinstance(w, QDoubleSpinBox):
                 w.setValue(float(val))
             elif isinstance(w, QSpinBox):
                 w.setValue(int(val))
-        self.in_observation.setPlainText(_DEMO_TEXT)
+
+    def _collect_answers(self) -> dict[str, object]:
+        answers: dict[str, object] = {"timestamp": datetime.now().isoformat(timespec="seconds")}
+        for key, widget in self._question_widgets.items():
+            if isinstance(widget, QComboBox):
+                answers[key] = widget.currentText().strip()
+            elif isinstance(widget, QDateEdit):
+                answers[key] = widget.date().toString("yyyy-MM-dd")
+            elif isinstance(widget, QLineEdit):
+                answers[key] = widget.text().strip()
+            elif isinstance(widget, QPlainTextEdit):
+                answers[key] = widget.toPlainText().strip()
+            elif isinstance(widget, QDoubleSpinBox):
+                answers[key] = float(widget.value())
+            elif isinstance(widget, QSpinBox):
+                answers[key] = int(widget.value())
+            elif isinstance(widget, QLabel):
+                answers[key] = widget.text().strip()
+        return answers
 
     def _collect_case(self) -> StudentCase:
-        features: dict[str, object] = {}
-        for key, w in self._feature_widgets.items():
-            if isinstance(w, QComboBox):
-                features[key] = w.currentText()
-            elif isinstance(w, QDoubleSpinBox):
-                features[key] = float(w.value())
-            elif isinstance(w, QSpinBox):
-                features[key] = int(w.value())
-        is_urban = features.get("Mediu_Rezidential") == "Urban"
+        answers = self._collect_answers()
+        full_name = str(answers.get("full_name", ""))
+        surname, name = _split_full_name(full_name)
+        features = dict(answers)
+        features["observation_text"] = _compose_observation_text(answers)
+        is_urban = answers.get("residential_environment") == "Urban"
         return StudentCase(
-            name=self.in_name.text().strip(),
-            surname=self.in_surname.text().strip(),
-            student_grade=self.in_grade.text().strip(),
-            school_name=self.in_school.text().strip(),
+            name=name,
+            surname=surname,
+            student_grade=str(answers.get("student_class", "")).strip(),
+            school_name=str(answers.get("school_name", "")).strip(),
             is_urban=is_urban,
-            observation_text=self.in_observation.toPlainText().strip(),
+            observation_text=str(features["observation_text"]),
             features=features,
         )
 
@@ -298,6 +385,7 @@ class MainWindow(QMainWindow):
         self._start_worker(
             self.service.generate_plan, self._on_plan_done,
             self.current_result.evaluation,
+            self.current_case,
         )
 
     def _on_plan_done(self, payload) -> None:

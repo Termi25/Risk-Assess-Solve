@@ -37,14 +37,23 @@ from .scoring_engine import (
 
 # Group each feature into an interpretable domain (drives the sub-scores).
 FEATURE_DOMAINS: dict[str, str] = {
+    "Age_Years": "Context personal",
+    "Sex": "Context personal",
+    "Mediu_Rezidential": "Context personal",
+    "Situatie_Familiala": "Context familial",
+    "Educatie_Mama": "Context familial",
+    "Educatie_Tata": "Context familial",
     "Absente_Nemotivate_Zilele_1_13": "Frecvență",
+    "Absente_Motivate_3_Luni": "Frecvență",
     "Medie_Modul_Anterior": "Performanță academică",
-    "Note_Sub_7": "Performanță academică",
+    "Note_Sub_5": "Performanță academică",
+    "Participare_Extrascolara": "Implicare",
     "Studentship_Score": "Implicare (Studentship)",
+    "Atitudine_Scoala": "Climat școlar",
+    "Sanctiuni_Avertismente": "Climat școlar",
+    "Cum_te_Simti_La_Scoala": "Climat școlar",
+    "Scoala_Ajuta_Obiective": "Climat școlar",
     "Stres_Emotional_NLP": "Stare emoțională (NLP)",
-    "Mediu_Rezidential": "Context socio-economic",
-    "Parinti_In_Strainatate": "Context socio-economic",
-    "Vulnerabilitate_Financiara": "Context socio-economic",
 }
 
 # The explainer is mildly expensive to build; cache one per model instance.
@@ -68,7 +77,7 @@ def _get_explainer(model: RiskModel) -> shap.Explainer:
         return model.clf.predict_proba(frame)[:, 1]
 
     masker = shap.maskers.Independent(background, max_samples=100)
-    explainer = shap.Explainer(predict_pos, masker, algorithm="exact")
+    explainer = shap.Explainer(predict_pos, masker, algorithm="permutation")
     _EXPLAINER_CACHE[key] = explainer
     return explainer
 
@@ -101,7 +110,7 @@ def compute_attributions(
     """Return (base_value, per-feature SHAP attributions) in probability space."""
     X = encode_case_features(features).astype(float)
     explainer = _get_explainer(model)
-    explanation = explainer(X)
+    explanation = explainer(X, max_evals=1000)
 
     values, base_value = _as_positive_class(
         explanation.values[0], explanation.base_values[0]
@@ -137,8 +146,16 @@ def _sub_scores(attributions: list[FeatureAttribution]) -> list[SubScore]:
         domain_mag[domain] = domain_mag.get(domain, 0.0) + abs(a.shap_value)
 
     total = sum(domain_mag.values()) or 1.0
-    order = ["Frecvență", "Performanță academică", "Implicare (Studentship)",
-             "Stare emoțională (NLP)", "Context socio-economic"]
+    order = [
+        "Context personal",
+        "Context familial",
+        "Frecvență",
+        "Performanță academică",
+        "Implicare",
+        "Implicare (Studentship)",
+        "Climat școlar",
+        "Stare emoțională (NLP)",
+    ]
     result = []
     for name in order:
         if name in domain_mag:

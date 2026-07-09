@@ -54,12 +54,19 @@ class AssessmentService:
         return AssessmentResult(nlp=nlp, evaluation=evaluation)
 
     def generate_plan(
-        self, evaluation: RiskEvaluation, api_key: Optional[str] = None
+        self,
+        evaluation: RiskEvaluation,
+        case: StudentCase | None = None,
+        api_key: Optional[str] = None,
     ) -> tuple[str, str]:
         from .llm_client import generate_action_plan
         from .settings import get_knowledge_text
         text, source = generate_action_plan(
-            evaluation, api_key=api_key, knowledge_text=get_knowledge_text() or None
+            evaluation,
+            api_key=api_key,
+            knowledge_text=get_knowledge_text() or None,
+            questionnaire_answers=(case.features if case else None),
+            observation_text=(case.observation_text if case else None),
         )
         evaluation.action_plan_text = text
         evaluation.action_plan_source = source

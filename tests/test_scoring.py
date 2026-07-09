@@ -8,6 +8,7 @@ from app.scoring_engine import (
     generate_synthetic_dataset,
     load_model,
     save_model,
+    compose_model_features,
 )
 from tests.conftest import HIGH_RISK, LOW_RISK
 
@@ -23,10 +24,17 @@ def test_encode_case_features_shape_and_codes():
     X = encode_case_features(HIGH_RISK)
     assert list(X.columns) == list(config.FEATURE_KEYS)
     assert X.shape == (1, len(config.FEATURE_KEYS))
-    # "Rural" -> 1, "Da" -> 1, "Ridicata" -> 2
+    # "Rural" -> 1, "Monoparental" -> 1, "Sancțiuni" -> 2
     assert X["Mediu_Rezidential"].iloc[0] == 1
-    assert X["Parinti_In_Strainatate"].iloc[0] == 1
-    assert X["Vulnerabilitate_Financiara"].iloc[0] == 2
+    assert X["Situatie_Familiala"].iloc[0] == 1
+    assert X["Sanctiuni_Avertismente"].iloc[0] == 2
+
+
+def test_compose_model_features_derives_age_and_studentship():
+    features = compose_model_features(HIGH_RISK)
+    assert "Age_Years" in features
+    assert 0 <= features["Age_Years"] <= 30
+    assert features["Studentship_Score"] <= 4
 
 
 def test_smote_balances_training_set(trained_model):

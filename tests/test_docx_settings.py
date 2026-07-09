@@ -6,6 +6,7 @@ import pytest
 
 from app import docx_reader, settings
 from app.docx_reader import DocxError
+from tests.conftest import HIGH_RISK
 
 _W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 
@@ -81,3 +82,27 @@ def test_grounded_system_prompt_includes_doc():
     grounded = _build_system_prompt("TEXT-UNIC-DE-REFERINTA")
     assert "TEXT-UNIC-DE-REFERINTA" in grounded
     assert len(grounded) > len(SYSTEM_PROMPT)
+
+
+def test_local_plan_uses_questionnaire_context(trained_model, monkeypatch):
+    from app.explainability import evaluate
+    from app.llm_client import anonymized_summary, generate_action_plan
+
+    monkeypatch.setattr("app.keystore.resolve_api_key", lambda pid: None)
+
+    model, _ = trained_model
+    evaluation = evaluate(model, HIGH_RISK)
+    summary = anonymized_summary(evaluation, HIGH_RISK)
+    assert "Context chestionar (anonimizat):" in summary
+    assert "Situația familială" in summary
+    assert "Nume" not in summary
+
+    plan, source = generate_action_plan(
+        evaluation,
+        questionnaire_answers=HIGH_RISK,
+        api_key=None,
+        knowledge_text=None,
+    )
+    assert source == "local template"
+    assert "Context relevant din chestionar" in plan
+    assert "Situația familială" in plan

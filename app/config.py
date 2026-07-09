@@ -1,10 +1,9 @@
-"""Central configuration: feature schema, paths, and app constants.
+"""Central configuration: questionnaire schema, feature schema, paths, and app constants.
 
-The feature schema mirrors the research methodology's "Day 14" early-warning
-model (previous-module average, unmotivated absences in the first 13 school
-days, the *studentship* engagement composite, and the socio-economic context),
-plus one NLP-derived emotional-stress feature that stands in for the BERT
-qualitative signal described in the README.
+The app now separates the full questionnaire collected from the teacher from
+the smaller model feature set used by the scoring engine. The questionnaire
+covers the complete report input, while the model uses a derived subset of the
+answers plus one NLP-derived emotional-stress feature.
 """
 
 from __future__ import annotations
@@ -40,42 +39,194 @@ class Feature:
     help_text: str = ""
 
 
+@dataclass(frozen=True)
+class QuestionnaireItem:
+    """One questionnaire field collected from the teacher or student."""
+
+    key: str
+    label: str
+    kind: str                # "text" | "multiline" | "date" | "categorical" | "numeric"
+    minimum: float = 0.0
+    maximum: float = 10.0
+    step: float = 1.0
+    default: object = ""
+    categories: tuple[str, ...] = field(default_factory=tuple)
+    help_text: str = ""
+    multiline: bool = False
+
+
+# Questionnaire order is significant for the UI.
+QUESTIONNAIRE_FIELDS: tuple[QuestionnaireItem, ...] = (
+    QuestionnaireItem(
+        key="timestamp",
+        label="Marcaj de timp",
+        kind="date",
+        help_text="Se completează automat la salvare.",
+        default="",
+    ),
+    QuestionnaireItem(
+        key="full_name",
+        label="1. Nume și Prenume",
+        kind="text",
+        default="",
+    ),
+    QuestionnaireItem(
+        key="birth_date",
+        label="2. Data nașterii",
+        kind="date",
+        default="2009-01-01",
+    ),
+    QuestionnaireItem(
+        key="student_class",
+        label="3. Clasa",
+        kind="text",
+        default="",
+    ),
+    QuestionnaireItem(
+        key="school_name",
+        label="4. Școala",
+        kind="text",
+        default="",
+    ),
+    QuestionnaireItem(
+        key="sex",
+        label="5. Sexul",
+        kind="categorical",
+        categories=("Feminin", "Masculin", "Altul / prefer să nu spun"),
+    ),
+    QuestionnaireItem(
+        key="residential_environment",
+        label="6. Mediul de proveniență",
+        kind="categorical",
+        categories=("Urban", "Rural"),
+    ),
+    QuestionnaireItem(
+        key="family_situation",
+        label="7. Situația familială",
+        kind="categorical",
+        categories=("Ambii părinți", "Monoparental", "Tutore / plasament", "Altă situație"),
+    ),
+    QuestionnaireItem(
+        key="family_situation_other",
+        label="7.a Dacă ai precizat altă situație la întrebarea de mai sus, descrie pe scurt",
+        kind="multiline",
+        multiline=True,
+    ),
+    QuestionnaireItem(
+        key="mother_education",
+        label="8.a Nivelul de educație al părinților (mama)",
+        kind="categorical",
+        categories=("Primar", "Gimnazial", "Liceal", "Postliceal", "Universitar", "Necunoscut"),
+    ),
+    QuestionnaireItem(
+        key="father_education",
+        label="8.b Nivelul de educație al părinților (tata)",
+        kind="categorical",
+        categories=("Primar", "Gimnazial", "Liceal", "Postliceal", "Universitar", "Necunoscut"),
+    ),
+    QuestionnaireItem(
+        key="unexcused_absences_3m",
+        label="9. Numărul absențelor nemotivate în ultimele 3 luni",
+        kind="numeric",
+        minimum=0,
+        maximum=60,
+        step=1,
+        default=0,
+    ),
+    QuestionnaireItem(
+        key="excused_absences_3m",
+        label="10. Numărul absențelor motivate în ultimele 3 luni",
+        kind="numeric",
+        minimum=0,
+        maximum=60,
+        step=1,
+        default=0,
+    ),
+    QuestionnaireItem(
+        key="extracurricular_participation",
+        label="11. Participarea la activități extrașcolare",
+        kind="categorical",
+        categories=("Da, frecvent", "Ocazional", "Nu"),
+    ),
+    QuestionnaireItem(
+        key="previous_module_average",
+        label="12. Media generale pe modulul anterior",
+        kind="numeric",
+        minimum=1.0,
+        maximum=10.0,
+        step=0.1,
+        default=7.0,
+    ),
+    QuestionnaireItem(
+        key="low_grades_details",
+        label="13. Note mai mici de 5 obținute la discipline în ultimul semestru (de specificat nota si materia)",
+        kind="multiline",
+        multiline=True,
+    ),
+    QuestionnaireItem(
+        key="school_attitude",
+        label="14. Cum ți-ai descrie atitudinea față de școală?",
+        kind="categorical",
+        categories=("Pozitivă", "Neutră", "Negativă"),
+    ),
+    QuestionnaireItem(
+        key="disciplinary_sanctions",
+        label="15. Ai primit sancțiuni sau avertismente disciplinare în ultimul an",
+        kind="categorical",
+        categories=("Nu", "Avertismente", "Sancțiuni"),
+    ),
+    QuestionnaireItem(
+        key="school_feeling",
+        label="16. Cum te simți în general la școală?",
+        kind="categorical",
+        categories=("Bine", "Neutru", "Stresat", "Izolat", "Altul"),
+    ),
+    QuestionnaireItem(
+        key="school_feeling_other",
+        label="16.a Dacă ai menționat altele, descrie pe scurt.",
+        kind="multiline",
+        multiline=True,
+    ),
+    QuestionnaireItem(
+        key="school_support_goal",
+        label="17. Consideri că școala te ajută să îți atingi obiectivele personale?",
+        kind="categorical",
+        categories=("Da", "Parțial", "Nu"),
+    ),
+    QuestionnaireItem(
+        key="additional_notes",
+        label="Observații suplimentare",
+        kind="multiline",
+        multiline=True,
+    ),
+)
+
+
 # Order is significant: this is exactly the column order fed to XGBoost/SHAP.
 FEATURES: tuple[Feature, ...] = (
+    Feature(
+        key="Age_Years",
+        label="Vârsta (ani)",
+        kind="numeric",
+        minimum=10.0,
+        maximum=22.0,
+        step=1.0,
+        default=15.0,
+        help_text="Vârsta aproximativă calculată din data nașterii.",
+    ),
+    Feature(
+        key="Sex",
+        label="Sexul",
+        kind="categorical",
+        categories=("Feminin", "Masculin", "Altul / prefer să nu spun"),
+        help_text="Răspunsul la întrebarea privind sexul.",
+    ),
     Feature(
         key="Medie_Modul_Anterior",
         label="Media modulului anterior",
         kind="numeric",
         minimum=1.0, maximum=10.0, step=0.1, default=7.0,
         help_text="Media notelor din modulul precedent (1–10).",
-    ),
-    Feature(
-        key="Note_Sub_7",
-        label="Număr note sub 7",
-        kind="numeric",
-        minimum=0, maximum=20, step=1, default=1,
-        help_text="Câte note sub 7 a primit elevul în perioada de referință.",
-    ),
-    Feature(
-        key="Absente_Nemotivate_Zilele_1_13",
-        label="Absențe nemotivate (zilele 1–13)",
-        kind="numeric",
-        minimum=0, maximum=40, step=1, default=2,
-        help_text="Absențe nemotivate în fereastra de avertizare timpurie 'Day 14'.",
-    ),
-    Feature(
-        key="Studentship_Score",
-        label="Scor Studentship (implicare 0–10)",
-        kind="numeric",
-        minimum=0, maximum=10, step=1, default=6,
-        help_text="Suma componentelor de prezență cognitivă și socială (0–10).",
-    ),
-    Feature(
-        key="Stres_Emotional_NLP",
-        label="Stres emoțional (NLP, 0–2)",
-        kind="numeric",
-        minimum=0.0, maximum=2.0, step=0.1, default=0.0,
-        help_text="Sub-scor derivat automat din observațiile calitative (BERT-style).",
     ),
     Feature(
         key="Mediu_Rezidential",
@@ -85,22 +236,103 @@ FEATURES: tuple[Feature, ...] = (
         help_text="Mediul de proveniență al elevului.",
     ),
     Feature(
-        key="Parinti_In_Strainatate",
-        label="Părinți în străinătate",
+        key="Situatie_Familiala",
+        label="Situație familială",
         kind="categorical",
-        categories=("Nu", "Da"),
-        help_text="Cel puțin un părinte plecat la muncă în străinătate.",
+        categories=("Ambii părinți", "Monoparental", "Tutore / plasament", "Altă situație"),
+        help_text="Situația familială declarată.",
     ),
     Feature(
-        key="Vulnerabilitate_Financiara",
-        label="Vulnerabilitate financiară",
+        key="Educatie_Mama",
+        label="Educația mamei",
         kind="categorical",
-        categories=("Scazuta", "Medie", "Ridicata"),
-        help_text="Nivelul vulnerabilității socio-economice a familiei.",
+        categories=("Primar", "Gimnazial", "Liceal", "Postliceal", "Universitar", "Necunoscut"),
+        help_text="Nivelul de educație al mamei.",
+    ),
+    Feature(
+        key="Educatie_Tata",
+        label="Educația tatălui",
+        kind="categorical",
+        categories=("Primar", "Gimnazial", "Liceal", "Postliceal", "Universitar", "Necunoscut"),
+        help_text="Nivelul de educație al tatălui.",
+    ),
+    Feature(
+        key="Absente_Nemotivate_Zilele_1_13",
+        label="Absențe nemotivate (3 luni)",
+        kind="numeric",
+        minimum=0, maximum=60, step=1, default=0,
+        help_text="Numărul de absențe nemotivate din ultimele 3 luni.",
+    ),
+    Feature(
+        key="Absente_Motivate_3_Luni",
+        label="Absențe motivate (3 luni)",
+        kind="numeric",
+        minimum=0, maximum=60, step=1, default=0,
+        help_text="Numărul de absențe motivate din ultimele 3 luni.",
+    ),
+    Feature(
+        key="Participare_Extrascolara",
+        label="Participare extrașcolară",
+        kind="categorical",
+        categories=("Da, frecvent", "Ocazional", "Nu"),
+        help_text="Participarea la activități extrașcolare.",
+    ),
+    Feature(
+        key="Note_Sub_5",
+        label="Număr note sub 5",
+        kind="numeric",
+        minimum=0, maximum=20, step=1, default=0,
+        help_text="Numărul notelor mai mici de 5 menționate în răspunsul la întrebarea 13.",
+    ),
+    Feature(
+        key="Studentship_Score",
+        label="Scor Studentship (implicare 0–10)",
+        kind="numeric",
+        minimum=0, maximum=10, step=1, default=6,
+        help_text="Scor compozit derivat din participare, atitudine, școală și sancțiuni.",
+    ),
+    Feature(
+        key="Atitudine_Scoala",
+        label="Atitudinea față de școală",
+        kind="categorical",
+        categories=("Pozitivă", "Neutră", "Negativă"),
+        help_text="Răspunsul la întrebarea despre atitudinea față de școală.",
+    ),
+    Feature(
+        key="Sanctiuni_Avertismente",
+        label="Sancțiuni / avertismente",
+        kind="categorical",
+        categories=("Nu", "Avertismente", "Sancțiuni"),
+        help_text="Dacă elevul a primit sancțiuni sau avertismente disciplinare.",
+    ),
+    Feature(
+        key="Cum_te_Simti_La_Scoala",
+        label="Cum se simte la școală",
+        kind="categorical",
+        categories=("Bine", "Neutru", "Stresat", "Izolat", "Altul"),
+        help_text="Cum se simte elevul în general la școală.",
+    ),
+    Feature(
+        key="Scoala_Ajuta_Obiective",
+        label="Școala ajută obiectivele personale",
+        kind="categorical",
+        categories=("Da", "Parțial", "Nu"),
+        help_text="Dacă elevul consideră că școala îl ajută să își atingă obiectivele.",
+    ),
+    Feature(
+        key="Stres_Emotional_NLP",
+        label="Stres emoțional (NLP, 0–2)",
+        kind="numeric",
+        minimum=0.0,
+        maximum=2.0,
+        step=0.1,
+        default=0.0,
+        help_text="Sub-scor derivat automat din textul calitativ.",
     ),
 )
 
 FEATURE_KEYS: tuple[str, ...] = tuple(f.key for f in FEATURES)
+QUESTIONNAIRE_KEYS: tuple[str, ...] = tuple(q.key for q in QUESTIONNAIRE_FIELDS)
 
 # Categorical column indices (positions in FEATURE_KEYS) — needed by SMOTE-NC.
 CATEGORICAL_INDICES: list[int] = [
