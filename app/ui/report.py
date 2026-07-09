@@ -6,8 +6,10 @@ background-coloured cells) so no plotting library is needed at runtime.
 
 from __future__ import annotations
 
+from datetime import datetime
 from html import escape
 
+from ..models import StudentCase
 from ..service import AssessmentResult
 
 _BAND_COLORS = {
@@ -129,3 +131,86 @@ _PLACEHOLDER = (
 
 def placeholder_html() -> str:
     return _PLACEHOLDER
+
+
+# --- Full PDF report --------------------------------------------------------
+def _personal_data_html(case: StudentCase) -> str:
+    """A label→value table of the identifying details + questionnaire answers."""
+    from .. import config
+
+    parts: list[str] = []
+    parts.append(
+        '<table width="100%" cellpadding="5" cellspacing="0" border="1" '
+        'style="border-color:#cccccc;">'
+    )
+    for item in config.QUESTIONNAIRE_FIELDS:
+        if item.key == "timestamp":
+            continue
+        value = case.features.get(item.key, "")
+        if value in (None, ""):
+            continue
+        parts.append(
+            "<tr>"
+            f'<td width="42%" bgcolor="#f2f4f7"><b>{escape(item.label)}</b></td>'
+            f"<td>{escape(str(value))}</td>"
+            "</tr>"
+        )
+    parts.append("</table>")
+    return "".join(parts)
+
+
+def build_report_html(case: StudentCase, result: AssessmentResult, plan_text: str) -> str:
+    """Assemble the full report (personal data + risk assessment + plan) as HTML."""
+    ev = result.evaluation
+    generated = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+    parts: list[str] = []
+    parts.append('<div style="font-family: Segoe UI, Arial, sans-serif;">')
+    parts.append(
+        '<h1 style="font-size:16pt;">Raport de evaluare a riscului de abandon școlar</h1>'
+    )
+    parts.append(
+        f'<p style="color:#555; font-size:9pt;">Generat: {escape(generated)} • '
+        f"Model: {escape(ev.model_version)}</p>"
+    )
+    parts.append('<hr>')
+
+    parts.append('<h2 style="font-size:13pt;">1. Date personale și chestionar</h2>')
+    parts.append(_personal_data_html(case))
+
+    parts.append('<h2 style="font-size:13pt;">2. Evaluarea riscului</h2>')
+    parts.append(render_result_html(result))
+
+    parts.append('<h2 style="font-size:13pt;">3. Plan de intervenție</h2>')
+    if plan_text and plan_text.strip():
+        source = ev.action_plan_source
+        if source:
+            parts.append(
+                f'<p style="color:#555; font-size:9pt;">Sursă: {escape(source)}</p>'
+            )
+        body = escape(plan_text.strip()).replace("\n", "<br>")
+        parts.append(
+            '<div style="font-family: Segoe UI, Arial, sans-serif; font-size:10pt; '
+            f'white-space:pre-wrap;">{body}</div>'
+        )
+    else:
+        parts.append(
+            '<p style="color:#888;"><i>Planul de intervenție nu a fost generat.</i></p>'
+        )
+
+    parts.append("</div>")
+    return "".join(parts)
+
+
+def export_report_pdf(path: str, html: str) -> None:
+    """Render ``html`` into an A4 PDF at ``path`` using Qt's built-in PDF writer."""
+    from PySide6.QtCore import QMarginsF
+    from PySide6.QtGui import QPageLayout, QPageSize, QPdfWriter, QTextDocument
+
+    writer = QPdfWriter(str(path))
+    writer.setPageSize(QPageSize(QPageSize.A4))
+    writer.setPageMargins(QMarginsF(15, 15, 15, 15), QPageLayout.Millimeter)
+
+    doc = QTextDocument()
+    doc.setHtml(html)
+    doc.print_(writer)

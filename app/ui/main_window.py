@@ -13,15 +13,16 @@ import traceback
 from PySide6.QtCore import QDate, Qt, QThread, Signal
 from PySide6.QtGui import QAction, QFont
 from PySide6.QtWidgets import (
-    QComboBox, QDateEdit, QDoubleSpinBox, QFormLayout, QGroupBox, QHBoxLayout,
-    QLabel, QLineEdit, QMainWindow, QMessageBox, QPlainTextEdit, QPushButton,
-    QScrollArea, QSpinBox, QSplitter, QTextBrowser, QVBoxLayout, QWidget,
+    QComboBox, QDateEdit, QDoubleSpinBox, QFileDialog, QFormLayout, QGroupBox,
+    QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox, QPlainTextEdit,
+    QPushButton, QScrollArea, QSpinBox, QSplitter, QTextBrowser, QVBoxLayout,
+    QWidget,
 )
 
 from .. import config
 from ..models import StudentCase
 from ..service import AssessmentResult, AssessmentService
-from .report import placeholder_html, render_result_html
+from .report import build_report_html, export_report_pdf, placeholder_html, render_result_html
 
 
 class FnWorker(QThread):
@@ -146,6 +147,11 @@ class MainWindow(QMainWindow):
             widget = QPlainTextEdit()
             widget.setFixedHeight(72)
             return widget
+        if item.kind == "text":
+            widget = QLineEdit()
+            if isinstance(item.default, str) and item.default:
+                widget.setText(item.default)
+            return widget
         if item.step < 1:
             widget = QDoubleSpinBox()
             widget.setRange(item.minimum, item.maximum)
@@ -237,6 +243,13 @@ class MainWindow(QMainWindow):
         btn_row2.addWidget(self.btn_plan)
         btn_row2.addWidget(self.btn_save)
         form_layout.addLayout(btn_row2)
+
+        btn_row3 = QHBoxLayout()
+        self.btn_pdf = QPushButton("Salvează raport PDF")
+        self.btn_pdf.setEnabled(False)
+        self.btn_pdf.clicked.connect(self._on_export_pdf)
+        btn_row3.addWidget(self.btn_pdf)
+        form_layout.addLayout(btn_row3)
         form_layout.addStretch(1)
 
         scroll = QScrollArea()
@@ -252,7 +265,7 @@ class MainWindow(QMainWindow):
         self.results.setHtml(placeholder_html())
         right_layout.addWidget(self.results, stretch=3)
 
-        plan_box = QGroupBox("Plan de intervenție („Proiectul Podul”)")
+        plan_box = QGroupBox("Plan de intervenție")
         plan_layout = QVBoxLayout(plan_box)
         self.plan_source = QLabel("Sursă: —")
         self.plan_source.setStyleSheet("color:#555;")
@@ -364,6 +377,7 @@ class MainWindow(QMainWindow):
         self._set_busy(True, "Se calculează scorul (model XGBoost + SHAP)…")
         self.btn_plan.setEnabled(False)
         self.btn_save.setEnabled(False)
+        self.btn_pdf.setEnabled(False)
         self._start_worker(self.service.assess, self._on_eval_done, self.current_case)
 
     def _on_eval_done(self, result: AssessmentResult) -> None:
@@ -375,6 +389,7 @@ class MainWindow(QMainWindow):
         self.results.setHtml(render_result_html(result))
         self.btn_plan.setEnabled(True)
         self.btn_save.setEnabled(True)
+        self.btn_pdf.setEnabled(True)
         self._set_busy(False, f"Evaluare completă. Model: {result.evaluation.model_version}")
 
     def _on_generate_plan(self) -> None:
@@ -404,6 +419,28 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(
                 f"Salvat în baza de date locală (evaluare #{eval_id})."
             )
+        except Exception as exc:
+            self._on_worker_error(f"{type(exc).__name__}: {exc}")
+
+    def _on_export_pdf(self) -> None:
+        if not (self.current_case and self.current_result):
+            return
+        safe_name = self.current_case.display_name().replace(" ", "_")
+        if safe_name in ("", "(elev_fără_nume)"):
+            safe_name = "elev"
+        default_path = f"raport_{safe_name}.pdf"
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Salvează raportul ca PDF", default_path, "Fișier PDF (*.pdf)"
+        )
+        if not path:
+            return
+        if not path.lower().endswith(".pdf"):
+            path += ".pdf"
+        try:
+            plan_text = self.plan_text.toPlainText().strip()
+            html = build_report_html(self.current_case, self.current_result, plan_text)
+            export_report_pdf(path, html)
+            self.statusBar().showMessage(f"Raport PDF salvat: {path}")
         except Exception as exc:
             self._on_worker_error(f"{type(exc).__name__}: {exc}")
 
