@@ -126,15 +126,30 @@ def _studentship_score(values: dict) -> float:
 
 
 def compose_model_features(features: dict) -> dict[str, object]:
-    """Derive the model feature set from the full questionnaire payload."""
+    """Derive the model feature set from the full questionnaire payload.
+
+    Accepts either raw questionnaire answers (keyed by questionnaire keys) or an
+    already-composed model-feature dict, and is idempotent for the latter: any
+    model key explicitly present in the input is preserved instead of being
+    re-derived. This lets a composed dict flow safely through both the encoder
+    and the SHAP layer without ``Note_Sub_5`` / ``Studentship_Score`` resetting.
+    """
     raw = dict(features)
     prepared: dict[str, object] = {}
 
+    # 1. Map questionnaire answers onto model keys.
     for raw_key, model_key in _QUESTIONNAIRE_TO_MODEL_KEYS.items():
         value = raw.get(raw_key)
         if value not in (None, ""):
             prepared[model_key] = value
 
+    # 2. Preserve any model keys already provided directly (idempotency): these
+    #    take precedence over the derivations below.
+    for feat in config.FEATURES:
+        if feat.key not in prepared and raw.get(feat.key) not in (None, ""):
+            prepared[feat.key] = raw[feat.key]
+
+    # 3. Derive the remaining values only when still missing.
     if "Age_Years" not in prepared:
         age = _age_from_birth_date(raw.get("birth_date"))
         if age is not None:
@@ -145,10 +160,6 @@ def compose_model_features(features: dict) -> dict[str, object]:
 
     if "Studentship_Score" not in prepared:
         prepared["Studentship_Score"] = _studentship_score({**raw, **prepared})
-
-    for feat in config.FEATURES:
-        if feat.key in raw and feat.key not in prepared:
-            prepared[feat.key] = raw[feat.key]
 
     for feat in config.FEATURES:
         prepared.setdefault(feat.key, feat.default)

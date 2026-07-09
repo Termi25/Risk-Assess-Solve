@@ -37,6 +37,13 @@ def test_compose_model_features_derives_age_and_studentship():
     assert features["Studentship_Score"] <= 4
 
 
+def test_compose_model_features_is_idempotent():
+    """Composing an already-composed dict must not reset derived values."""
+    once = compose_model_features(HIGH_RISK)
+    twice = compose_model_features(once)
+    assert twice == once
+
+
 def test_smote_balances_training_set(trained_model):
     _, metrics = trained_model
     after = metrics.balance_after

@@ -104,7 +104,7 @@ QUESTIONNAIRE_FIELDS: tuple[QuestionnaireItem, ...] = (
         key="family_situation",
         label="7. Situația familială",
         kind="categorical",
-        categories=("Ambii părinți", "Monoparental", "Tutore / plasament", "Altă situație"),
+        categories=("Ambii părinți", "Monoparental", "Tutore / plasament","Părinți divortați/separați", "Altă situație"),
     ),
     QuestionnaireItem(
         key="family_situation_other",
@@ -116,13 +116,13 @@ QUESTIONNAIRE_FIELDS: tuple[QuestionnaireItem, ...] = (
         key="mother_education",
         label="8.a Nivelul de educație al părinților (mama)",
         kind="categorical",
-        categories=("Primar", "Gimnazial", "Liceal", "Postliceal", "Universitar", "Necunoscut"),
+        categories=("Primar", "Gimnazial", "Liceal", "Postliceal", "Universitar", "Nu se aplică/Necunoscut"),
     ),
     QuestionnaireItem(
         key="father_education",
         label="8.b Nivelul de educație al părinților (tata)",
         kind="categorical",
-        categories=("Primar", "Gimnazial", "Liceal", "Postliceal", "Universitar", "Necunoscut"),
+        categories=("Primar", "Gimnazial", "Liceal", "Postliceal", "Universitar", "Nu se aplică/Necunoscut"),
     ),
     QuestionnaireItem(
         key="unexcused_absences_3m",
@@ -352,6 +352,47 @@ def feature(key: str) -> Feature:
         if f.key == key:
             return f
     raise KeyError(key)
+
+
+# --- Risk classification (4-tier prioritization, per the research figures) --
+# The intervention-prioritization table distinguishes four risk levels, each
+# with a matching intervention urgency and a colour used across the report:
+#   Moderat  -> Monitorizare (green)   — healthy, keep watching
+#   Mediu    -> Medie         (yellow) — targeted support
+#   Ridicat  -> Ridicată      (orange) — active intervention
+#   Critic   -> Maximă        (red)    — immediate, compounded-risk crisis
+# ``min_probability`` is the lower bound of the model-probability band; a Ridicat
+# case is escalated to Critic by the severity rules in ``explainability``.
+@dataclass(frozen=True)
+class RiskTier:
+    band: str            # short risk-level name shown on the badge
+    urgency: str         # matching intervention urgency
+    min_probability: float
+    color: str           # badge / dot colour
+    text_color: str      # readable text colour on ``color``
+
+
+RISK_TIERS: tuple[RiskTier, ...] = (
+    RiskTier("Moderat", "Monitorizare", 0.00, "#2e8b57", "#ffffff"),
+    RiskTier("Mediu",   "Medie",        0.34, "#f1c40f", "#3a3a3a"),
+    RiskTier("Ridicat", "Ridicată",     0.60, "#e67e22", "#ffffff"),
+    RiskTier("Critic",  "Maximă",       0.85, "#d64550", "#ffffff"),
+)
+RISK_TIER_BY_BAND: dict[str, RiskTier] = {t.band: t for t in RISK_TIERS}
+
+
+def tier_for_probability(probability: float) -> RiskTier:
+    """Base risk tier for a model probability (before severity escalation)."""
+    chosen = RISK_TIERS[0]
+    for tier in RISK_TIERS:
+        if probability >= tier.min_probability:
+            chosen = tier
+    return chosen
+
+
+def tier_for_band(band: str) -> RiskTier:
+    """Look up a tier by band name; falls back to the lowest tier."""
+    return RISK_TIER_BY_BAND.get(band, RISK_TIERS[0])
 
 
 # --- Paths ------------------------------------------------------------------
