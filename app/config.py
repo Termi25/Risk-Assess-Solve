@@ -138,7 +138,6 @@ QUESTIONNAIRE_FIELDS: tuple[QuestionnaireItem, ...] = (
         label="10. Numărul absențelor motivate în ultimele 3 luni",
         kind="numeric",
         minimum=0,
-        maximum=60,
         step=1,
         default=0,
     ),
