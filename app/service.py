@@ -53,6 +53,37 @@ class AssessmentService:
         evaluation = evaluate_case(model, case, nlp)
         return AssessmentResult(nlp=nlp, evaluation=evaluation)
 
+    def assess_many(
+        self,
+        cases: list[StudentCase],
+        progress: Optional[callable] = None,
+    ) -> list[AssessmentResult]:
+        """Assess a batch of cases, loading the model once.
+
+        ``progress(done, total)`` — if given — is called after each case so the
+        GUI can drive a progress bar. Runs entirely offline.
+        """
+        self.ensure_model()
+        results: list[AssessmentResult] = []
+        total = len(cases)
+        for index, case in enumerate(cases, start=1):
+            results.append(self.assess(case))
+            if progress is not None:
+                progress(index, total)
+        return results
+
+    def local_plan(self, evaluation: RiskEvaluation, case: StudentCase | None = None) -> str:
+        """Offline intervention plan (no API call) — used for batch reports."""
+        from .llm_client import local_action_plan
+        text, source = local_action_plan(
+            evaluation,
+            questionnaire_answers=(case.features if case else None),
+            observation_text=(case.observation_text if case else None),
+        )
+        evaluation.action_plan_text = text
+        evaluation.action_plan_source = source
+        return text
+
     def generate_plan(
         self,
         evaluation: RiskEvaluation,

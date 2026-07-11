@@ -1,0 +1,114 @@
+SHEETS: ['Răspunsuri la formular 1', 'Foaie1']
+SHAPE: (4, 21)
+COLUMNS:
+  [0] 'Marcaj de timp'
+  [1] '1.  Nume și Prenume '
+  [2] '2. Data nașterii '
+  [3] '3. Clasa '
+  [4] '4. Școala'
+  [5] '5.  Sexul'
+  [6] '6.  Mediul de proveniență '
+  [7] '7. Situația familială'
+  [8] '7.a Dacă ai precizat altă situaţie la întrebarea de mai sus, descrie pe scurt'
+  [9] '8.a Nivelul de educație al părinților (mama)'
+  [10] '8. b Nivelul de educație al părinților (tata)'
+  [11] '9. Numărul absențelor nemotivate în ultimele 3 luni'
+  [12] '10. Numărul absențelor motivate în ultimele 3 luni'
+  [13] '11. Participarea la activități extrașcolare'
+  [14] '12. Media generale pe modulul anterior'
+  [15] '13. Note mai mici de 5 obținute la discipline în ultimul semestru (de specificat nota si materia)'
+  [16] '14.Cum ți-ai descrie atitudinea față de școală? '
+  [17] '15. Ai primit sancțiuni sau avertismente disciplinare în ultimul an'
+  [18] '16. Cum te simți în general la școală?'
+  [19] '16. a Daca ai mentionat altele, descrie pe scurt.'
+  [20] '17. Consideri că școala te ajută să îți atingi obiectivele personale?'
+
+ROWS:
+--- row 0 ---
+   'Marcaj de timp' = Timestamp('2025-09-02 12:06:14.586000')
+   '1.  Nume și Prenume ' = 'Student 1'
+   '2. Data nașterii ' = Timestamp('2013-11-01 00:00:00')
+   '3. Clasa ' = 'Clasa a III-a'
+   '4. Școala' = 'Scoala Gimnaziala nr.145, Bucuresti, sector 2'
+   '5.  Sexul' = 'Masculin'
+   '6.  Mediul de proveniență ' = 'Urban'
+   '7. Situația familială' = 'Părinți divorțați/separați'
+   '7.a Dacă ai precizat altă situaţie la întrebarea de mai sus, descrie pe scurt' = 'Nu e cazul'
+   '8.a Nivelul de educație al părinților (mama)' = 'Studii gimnaziale'
+   '8. b Nivelul de educație al părinților (tata)' = 'Nu se aplică / necunoscut'
+   '9. Numărul absențelor nemotivate în ultimele 3 luni' = 240
+   '10. Numărul absențelor motivate în ultimele 3 luni' = 0
+   '11. Participarea la activități extrașcolare' = 'Nu particip deloc'
+   '12. Media generale pe modulul anterior' = 'Suficient'
+   '13. Note mai mici de 5 obținute la discipline în ultimul semestru (de specificat nota si materia)' = 'Suficient la toatele materiile obtinute la corigenta'
+   '14.Cum ți-ai descrie atitudinea față de școală? ' = 1
+   '15. Ai primit sancțiuni sau avertismente disciplinare în ultimul an' = 'Nu'
+   '16. Cum te simți în general la școală?' = 'probleme medicale'
+   '16. a Daca ai mentionat altele, descrie pe scurt.' = 'Internat la spitalul de psihiatrie, crescut de bunica'
+   '17. Consideri că școala te ajută să îți atingi obiectivele personale?' = 3
+--- row 1 ---
+   'Marcaj de timp' = Timestamp('2025-09-02 12:10:16.460000')
+   '1.  Nume și Prenume ' = 'Student 2'
+   '2. Data nașterii ' = Timestamp('2014-12-10 00:00:00')
+   '3. Clasa ' = 'Clasa a III-a'
+   '4. Școala' = 'Scoala Gimnaziala nr.145, Bucuresti, sector 2'
+   '5.  Sexul' = 'Feminin'
+   '6.  Mediul de proveniență ' = 'Urban'
+   '7. Situația familială' = 'Familie monoparentală'
+   '7.a Dacă ai precizat altă situaţie la întrebarea de mai sus, descrie pe scurt' = 'Nu e cazul'
+   '8.a Nivelul de educație al părinților (mama)' = 'Studii gimnaziale'
+   '8. b Nivelul de educație al părinților (tata)' = 'Nu se aplică / necunoscut'
+   '9. Numărul absențelor nemotivate în ultimele 3 luni' = 32
+   '10. Numărul absențelor motivate în ultimele 3 luni' = 32
+   '11. Participarea la activități extrașcolare' = 'Cluburi sau cercuri școlare'
+   '12. Media generale pe modulul anterior' = 'Suficient'
+   '13. Note mai mici de 5 obținute la discipline în ultimul semestru (de specificat nota si materia)' = 'Suficient, limba romana, matematica'
+   '14.Cum ți-ai descrie atitudinea față de școală? ' = 4
+   '15. Ai primit sancțiuni sau avertismente disciplinare în ultimul an' = 'Nu'
+   '16. Cum te simți în general la școală?' = 'Motivat și implicat'
+   '16. a Daca ai mentionat altele, descrie pe scurt.' = 'Nu e cazul'
+   '17. Consideri că școala te ajută să îți atingi obiectivele personale?' = 4
+--- row 2 ---
+   'Marcaj de timp' = Timestamp('2025-09-02 12:16:08.473000')
+   '1.  Nume și Prenume ' = 'Student 3'
+   '2. Data nașterii ' = Timestamp('2014-04-17 00:00:00')
+   '3. Clasa ' = 'Clasa a III-a'
+   '4. Școala' = 'Scoala Gimnaziala nr.145, Bucuresti, sector 2'
+   '5.  Sexul' = 'Masculin'
+   '6.  Mediul de proveniență ' = 'Urban'
+   '7. Situația familială' = 'Alte situații'
+   '7.a Dacă ai precizat altă situaţie la întrebarea de mai sus, descrie pe scurt' = 'Mama , acum Maslina recasatorita'
+   '8.a Nivelul de educație al părinților (mama)' = 'Fără studii'
+   '8. b Nivelul de educație al părinților (tata)' = 'Nu se aplică / necunoscut'
+   '9. Numărul absențelor nemotivate în ultimele 3 luni' = 60
+   '10. Numărul absențelor motivate în ultimele 3 luni' = 48
+   '11. Participarea la activități extrașcolare' = 'Nu particip deloc'
+   '12. Media generale pe modulul anterior' = 'Suficient'
+   '13. Note mai mici de 5 obținute la discipline în ultimul semestru (de specificat nota si materia)' = 'Suficient, Limba '
+   '14.Cum ți-ai descrie atitudinea față de școală? ' = 1
+   '15. Ai primit sancțiuni sau avertismente disciplinare în ultimul an' = 'Da'
+   '16. Cum te simți în general la școală?' = 'neinteresant'
+   '16. a Daca ai mentionat altele, descrie pe scurt.' = 'Absentele nu sunt din cauze medicale'
+   '17. Consideri că școala te ajută să îți atingi obiectivele personale?' = 1
+--- row 3 ---
+   'Marcaj de timp' = Timestamp('2025-09-02 12:20:23.766000')
+   '1.  Nume și Prenume ' = 'Student 4'
+   '2. Data nașterii ' = Timestamp('2015-02-28 00:00:00')
+   '3. Clasa ' = 'Clasa a III-a'
+   '4. Școala' = 'Scoala Gimnaziala nr.145, Bucuresti, sector 2'
+   '5.  Sexul' = 'Masculin'
+   '6.  Mediul de proveniență ' = 'Urban'
+   '7. Situația familială' = 'Părinți divorțați/separați'
+   '7.a Dacă ai precizat altă situaţie la întrebarea de mai sus, descrie pe scurt' = 'Nu e cazul'
+   '8.a Nivelul de educație al părinților (mama)' = 'Nu se aplică / necunoscut'
+   '8. b Nivelul de educație al părinților (tata)' = 'Studii gimnaziale'
+   '9. Numărul absențelor nemotivate în ultimele 3 luni' = 84
+   '10. Numărul absențelor motivate în ultimele 3 luni' = 72
+   '11. Participarea la activități extrașcolare' = 'Nu particip deloc'
+   '12. Media generale pe modulul anterior' = 'Bine'
+   '13. Note mai mici de 5 obținute la discipline în ultimul semestru (de specificat nota si materia)' = 'Suficient la matematica si limba romana'
+   '14.Cum ți-ai descrie atitudinea față de școală? ' = 2
+   '15. Ai primit sancțiuni sau avertismente disciplinare în ultimul an' = 'Nu'
+   '16. Cum te simți în general la școală?' = 'Stresat / anxios'
+   '16. a Daca ai mentionat altele, descrie pe scurt.' = 'Nu e cazul'
+   '17. Consideri că școala te ajută să îți atingi obiectivele personale?' = 3

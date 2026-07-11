@@ -25,6 +25,7 @@ app/artifacts/*.pkl
 *.db
 *.sqlite3
 .env
+*.xlsx
 
 # OS / editor
 .DS_Store

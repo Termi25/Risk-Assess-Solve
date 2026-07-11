@@ -13,6 +13,10 @@ scikit-learn>=1.3
 xgboost>=2.0
 imbalanced-learn>=0.12        # provides SMOTE-NC
 
+# Batch import of Google-Forms questionnaire responses (.xlsx). Only the Excel
+# import path needs this; the manual single-student flow does not.
+openpyxl>=3.1
+
 # Genuine explainability (TreeExplainer over the real XGBoost model)
 shap>=0.44
 

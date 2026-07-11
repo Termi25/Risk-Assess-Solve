@@ -231,6 +231,15 @@ def _local_plan(
     return "\n".join(parts)
 
 
+def local_action_plan(
+    evaluation: RiskEvaluation,
+    questionnaire_answers: dict | None = None,
+    observation_text: str | None = None,
+) -> tuple[str, str]:
+    """The offline, rule-based plan (no network). Used for batch report runs."""
+    return _local_plan(evaluation, questionnaire_answers, observation_text), "local template"
+
+
 def _build_system_prompt(knowledge_text: str | None) -> str:
     """System prompt, optionally grounded in the knowledge-base document."""
     if not knowledge_text:

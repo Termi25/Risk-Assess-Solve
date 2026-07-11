@@ -22,7 +22,10 @@ from PySide6.QtWidgets import (
 from .. import config
 from ..models import StudentCase
 from ..service import AssessmentResult, AssessmentService
-from .report import build_report_html, export_report_pdf, placeholder_html, render_result_html
+from .report import (
+    build_report_html, build_summary_report_html, export_report_pdf,
+    placeholder_html, render_result_html,
+)
 
 
 class FnWorker(QThread):
@@ -38,6 +41,71 @@ class FnWorker(QThread):
     def run(self) -> None:  # noqa: D401
         try:
             self.done.emit(self._fn(*self._args, **self._kwargs))
+        except Exception as exc:  # surfaced to the UI, never crashes the app
+            self.failed.emit(f"{type(exc).__name__}: {exc}\n\n{traceback.format_exc()}")
+
+
+def _safe_stem(text: str, fallback: str) -> str:
+    """A filesystem-safe file stem from a (possibly Romanian) name."""
+    cleaned = "".join(ch if ch.isalnum() else "_" for ch in text.strip())
+    cleaned = "_".join(part for part in cleaned.split("_") if part)
+    return cleaned or fallback
+
+
+class BatchImportWorker(QThread):
+    """Import a Google-Forms .xlsx, assess every student and write the PDFs.
+
+    Runs the whole offline pipeline on a background thread and reports progress
+    back to the UI via a queued signal. Emits ``done`` with a summary dict, or
+    ``failed`` with a message; the app never crashes on a bad workbook.
+    """
+
+    progress = Signal(int, int, str)   # done, total, phase label
+    done = Signal(object)              # {"out_dir", "count", "summary_path"}
+    failed = Signal(str)
+
+    def __init__(self, service: AssessmentService, cases: list, out_dir: str):
+        super().__init__()
+        self._service, self._cases, self._out_dir = service, cases, out_dir
+
+    def run(self) -> None:  # noqa: D401
+        import os
+
+        try:
+            cases = self._cases
+            total = len(cases)
+
+            self.progress.emit(0, total, "Se evaluează elevii…")
+            results = self._service.assess_many(
+                cases,
+                progress=lambda done, tot: self.progress.emit(
+                    done, tot, "Se evaluează elevii…"
+                ),
+            )
+
+            entries: list[tuple[StudentCase, object]] = []
+            for index, (case, result) in enumerate(zip(cases, results), start=1):
+                evaluation = result.evaluation
+                # Use the configured AI provider when a key is available (same as
+                # the single-student flow); generate_plan falls back to the local
+                # template per student if the cloud call fails.
+                plan_text, _source = self._service.generate_plan(evaluation, case)
+                html = build_report_html(case, result, plan_text)
+                stem = _safe_stem(case.display_name(), f"elev_{index}")
+                pdf_path = os.path.join(self._out_dir, f"raport_{index:02d}_{stem}.pdf")
+                export_report_pdf(pdf_path, html)
+                entries.append((case, evaluation))
+                self.progress.emit(index, total, "Se generează planurile și rapoartele PDF…")
+
+            summary_html = build_summary_report_html(
+                entries, model_version=self._service.model_version
+            )
+            summary_path = os.path.join(self._out_dir, "raport_general.pdf")
+            export_report_pdf(summary_path, summary_html)
+
+            self.done.emit(
+                {"out_dir": self._out_dir, "count": total, "summary_path": summary_path}
+            )
         except Exception as exc:  # surfaced to the UI, never crashes the app
             self.failed.emit(f"{type(exc).__name__}: {exc}\n\n{traceback.format_exc()}")
 
@@ -98,6 +166,7 @@ class MainWindow(QMainWindow):
         self.service = AssessmentService()
         self.current_case: StudentCase | None = None
         self.current_result: AssessmentResult | None = None
+        self.current_plan_text: str = ""     # raw plan markdown (source for the PDF)
         self._workers: list[FnWorker] = []
         self._question_widgets: dict[str, QWidget] = {}
 
@@ -107,6 +176,11 @@ class MainWindow(QMainWindow):
 
     # --- UI construction ---------------------------------------------------
     def _build_menu(self) -> None:
+        questionnaire_menu = self.menuBar().addMenu("&Chestionar")
+        self.act_import = QAction("Importă răspunsuri Google Forms (.xlsx)…", self)
+        self.act_import.triggered.connect(self._on_import_excel)
+        questionnaire_menu.addAction(self.act_import)
+
         settings_menu = self.menuBar().addMenu("&Setări")
         act_kb = QAction("Bază de cunoștințe (.docx)…", self)
         act_kb.triggered.connect(self._on_settings)
@@ -269,9 +343,9 @@ class MainWindow(QMainWindow):
         plan_layout = QVBoxLayout(plan_box)
         self.plan_source = QLabel("Sursă: —")
         self.plan_source.setStyleSheet("color:#555;")
-        self.plan_text = QPlainTextEdit()
-        self.plan_text.setReadOnly(True)
-        self.plan_text.setFont(QFont("Consolas", 9))
+        # QTextBrowser renders the plan's markdown (headings, bold, bullets);
+        # the raw markdown is kept in ``self.current_plan_text`` for the PDF.
+        self.plan_text = QTextBrowser()
         plan_layout.addWidget(self.plan_source)
         plan_layout.addWidget(self.plan_text)
         right_layout.addWidget(plan_box, stretch=2)
@@ -367,6 +441,7 @@ class MainWindow(QMainWindow):
     def _set_busy(self, busy: bool, message: str = "") -> None:
         self.btn_eval.setEnabled(not busy)
         self.btn_demo.setEnabled(not busy)
+        self.act_import.setEnabled(not busy)
         if message:
             self.statusBar().showMessage(message)
         self.setCursor(Qt.BusyCursor if busy else Qt.ArrowCursor)
@@ -374,6 +449,9 @@ class MainWindow(QMainWindow):
     # --- actions -----------------------------------------------------------
     def _on_evaluate(self) -> None:
         self.current_case = self._collect_case()
+        self.current_plan_text = ""      # a new evaluation invalidates the old plan
+        self.plan_text.clear()
+        self.plan_source.setText("Sursă: —")
         self._set_busy(True, "Se calculează scorul (model XGBoost + SHAP)…")
         self.btn_plan.setEnabled(False)
         self.btn_save.setEnabled(False)
@@ -405,7 +483,8 @@ class MainWindow(QMainWindow):
 
     def _on_plan_done(self, payload) -> None:
         text, source = payload
-        self.plan_text.setPlainText(text)
+        self.current_plan_text = text
+        self.plan_text.setMarkdown(text)
         self.plan_source.setText(f"Sursă plan: {source}")
         self._set_busy(False, "Plan generat.")
 
@@ -437,12 +516,113 @@ class MainWindow(QMainWindow):
         if not path.lower().endswith(".pdf"):
             path += ".pdf"
         try:
-            plan_text = self.plan_text.toPlainText().strip()
-            html = build_report_html(self.current_case, self.current_result, plan_text)
+            html = build_report_html(
+                self.current_case, self.current_result, self.current_plan_text
+            )
             export_report_pdf(path, html)
             self.statusBar().showMessage(f"Raport PDF salvat: {path}")
         except Exception as exc:
             self._on_worker_error(f"{type(exc).__name__}: {exc}")
+
+    # --- batch import (Google-Forms .xlsx) ---------------------------------
+    def _on_import_excel(self) -> None:
+        xlsx_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Alege fișierul cu răspunsuri (.xlsx exportat din Google Forms)",
+            "",
+            "Fișiere Excel (*.xlsx *.xlsm)",
+        )
+        if not xlsx_path:
+            return
+
+        # Load + validate the workbook up front (fast, no model) so a bad file
+        # fails immediately and we can show the student count in the prompt.
+        from ..excel_import import ExcelImportError, load_cases_from_excel
+        try:
+            cases = load_cases_from_excel(xlsx_path)
+        except ExcelImportError as exc:
+            QMessageBox.critical(self, "Import eșuat", str(exc))
+            return
+        except Exception as exc:
+            QMessageBox.critical(self, "Import eșuat", f"{type(exc).__name__}: {exc}")
+            return
+        if not cases:
+            QMessageBox.warning(self, "Import", "Nu s-au găsit elevi în fișier.")
+            return
+
+        # Plans use the configured cloud provider when a key exists (same as the
+        # single-student flow); warn about the per-student cloud latency first.
+        from .. import keystore, settings
+        provider = config.get_provider(settings.get_active_provider())
+        uses_cloud = bool(keystore.resolve_api_key(provider.id))
+        if uses_cloud:
+            note = (
+                f"Se vor evalua {len(cases)} elevi, iar planurile de intervenție "
+                f"vor fi generate prin {provider.label} (cu revenire la planul "
+                "local dacă un apel eșuează).\n\n"
+                "Fiecare plan necesită un apel în cloud, deci procesul poate dura "
+                "câteva minute pentru o clasă întreagă. Continuați?"
+            )
+        else:
+            note = (
+                f"Se vor evalua {len(cases)} elevi, iar planurile vor fi generate "
+                "local (offline). Continuați?"
+            )
+        if QMessageBox.question(self, "Confirmare import", note) != QMessageBox.Yes:
+            return
+
+        out_dir = QFileDialog.getExistingDirectory(
+            self, "Alege folderul unde se salvează rapoartele PDF"
+        )
+        if not out_dir:
+            return
+
+        self._set_busy(True, "Se importă și se evaluează elevii…")
+        worker = BatchImportWorker(self.service, cases, out_dir)
+        worker.progress.connect(self._on_batch_progress)
+        worker.done.connect(self._on_batch_done)
+        worker.failed.connect(self._on_batch_error)
+        worker.finished.connect(
+            lambda w=worker: self._workers.remove(w) if w in self._workers else None
+        )
+        self._workers.append(worker)
+        worker.start()
+
+    def _on_batch_progress(self, done: int, total: int, phase: str) -> None:
+        if total:
+            self.statusBar().showMessage(f"{phase} ({done}/{total})")
+        else:
+            self.statusBar().showMessage(phase)
+
+    def _on_batch_done(self, payload: dict) -> None:
+        out_dir = payload["out_dir"]
+        count = payload["count"]
+        self._set_busy(
+            False, f"Import complet: {count} rapoarte + raport general în {out_dir}"
+        )
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Information)
+        box.setWindowTitle("Import finalizat")
+        box.setText(
+            f"Au fost evaluați {count} elevi.\n\n"
+            f"S-au generat {count} rapoarte individuale și un raport general "
+            f"(raport_general.pdf) în:\n{out_dir}"
+        )
+        open_btn = box.addButton("Deschide folderul", QMessageBox.AcceptRole)
+        box.addButton("Închide", QMessageBox.RejectRole)
+        box.exec()
+        if box.clickedButton() is open_btn:
+            self._open_folder(out_dir)
+
+    def _on_batch_error(self, message: str) -> None:
+        self._set_busy(False, "Import eșuat.")
+        QMessageBox.critical(self, "Import eșuat", message)
+
+    @staticmethod
+    def _open_folder(path: str) -> None:
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+        QDesktopServices.openUrl(QUrl.fromLocalFile(path))
 
     def _on_retrain(self) -> None:
         if QMessageBox.question(
