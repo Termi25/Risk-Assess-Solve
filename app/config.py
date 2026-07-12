@@ -371,11 +371,15 @@ class RiskTier:
     text_color: str      # readable text colour on ``color``
 
 
+# Probability bands calibrated to the graded scoring model (see scoring_engine
+# ``_RISK_LOGIT``): the model produces a smooth spread rather than saturating, so
+# the tiers sit at the natural break-points of that distribution (base dropout
+# rate ≈ 0.22) instead of the near-1.0 values the old hard-rule model emitted.
 RISK_TIERS: tuple[RiskTier, ...] = (
     RiskTier("Moderat", "Monitorizare", 0.00, "#2e8b57", "#ffffff"),
-    RiskTier("Mediu",   "Medie",        0.34, "#f1c40f", "#3a3a3a"),
-    RiskTier("Ridicat", "Ridicată",     0.60, "#e67e22", "#ffffff"),
-    RiskTier("Critic",  "Maximă",       0.85, "#d64550", "#ffffff"),
+    RiskTier("Mediu",   "Medie",        0.20, "#f1c40f", "#3a3a3a"),
+    RiskTier("Ridicat", "Ridicată",     0.42, "#e67e22", "#ffffff"),
+    RiskTier("Critic",  "Maximă",       0.65, "#d64550", "#ffffff"),
 )
 RISK_TIER_BY_BAND: dict[str, RiskTier] = {t.band: t for t in RISK_TIERS}
 
@@ -450,8 +454,15 @@ def settings_path() -> Path:
 
 
 # --- LLM (optional cloud step) ---------------------------------------------
-# Generous headroom: with adaptive thinking, reasoning tokens share this budget.
-LLM_MAX_TOKENS = 4000
+# Output-token ceiling. Reasoning ("thinking") tokens share this budget on both
+# providers, so it must comfortably fit both the internal reasoning and the full
+# written plan — otherwise the plan is truncated (or empty) and silently falls
+# back to the local template, making batch reports inconsistent.
+LLM_MAX_TOKENS = 8192
+# Gemini 2.5 counts thinking tokens against ``max_output_tokens``. Bounding the
+# thinking budget guarantees the written plan always has room and keeps plan
+# length/quality consistent across a batch of per-student calls.
+GEMINI_THINKING_BUDGET = 2048
 
 
 @dataclass(frozen=True)
@@ -507,5 +518,5 @@ KNOWLEDGE_MAX_CHARS = 24000
 
 
 # --- Training (synthetic SIIIR-like data) ----------------------------------
-TRAIN_SAMPLES = 1200
+TRAIN_SAMPLES = 2800
 RANDOM_SEED = 42

@@ -18,6 +18,7 @@ figure "xAI Analysis and Personalized Intervention Plan".
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from html import escape
 
@@ -408,6 +409,10 @@ def _markdown_to_html(md_text: str) -> str:
     text = (md_text or "").strip()
     if not text:
         return ""
+    # Defensive: a bare ``<br>`` inside a Markdown table cell makes Qt's parser
+    # truncate the row and drop every block after the table (blanking the plan).
+    # Self-closing ``<br/>`` parses cleanly, so normalise all variants to it.
+    text = re.sub(r"(?i)<br\s*/?>", "<br/>", text)
     try:
         from PySide6.QtGui import QTextDocument
         doc = QTextDocument()
@@ -615,7 +620,7 @@ def _priority_table_html(entries: list[tuple[StudentCase, RiskEvaluation]]) -> s
     )
 
     head = (
-        f'<tr bgcolor="{_PRIMARY}">'
+        f'<tr bgcolor="#ffffff">'
         + "".join(
             f'<td style="color:#ffffff; font-size:8pt;"><b>{escape(h)}</b></td>'
             for h in (

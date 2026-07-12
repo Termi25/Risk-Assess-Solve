@@ -68,9 +68,9 @@ def test_severe_profile_escalates_to_critic():
         "Sanctiuni_Avertismente": "Sancțiuni",
         "Cum_te_Simti_La_Scoala": "Izolat",
     }
-    assert classify_risk(0.70, mf).band == "Critic"
-    # A plain high-probability case with no severe factors stays Ridicat.
-    assert classify_risk(0.70, {"Medie_Modul_Anterior": 8.0}).band == "Ridicat"
+    assert classify_risk(0.50, mf).band == "Critic"
+    # A plain Ridicat-band case with no severe factors stays Ridicat.
+    assert classify_risk(0.50, {"Medie_Modul_Anterior": 8.0}).band == "Ridicat"
 
 
 def test_value_display_reflects_questionnaire_answers(trained_model):

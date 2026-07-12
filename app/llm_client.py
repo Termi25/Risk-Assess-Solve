@@ -31,6 +31,12 @@ SYSTEM_PROMPT = (
     "2. Contract educațional (angajamente reciproce elev–profesor–familie).\n"
     "3. Măsuri țintite pentru primii 2–3 factori de risc identificați.\n"
     "4. Indicatori de succes pe 4 săptămâni (măsurabili).\n"
+    "FORMATARE (obligatorie): folosește exclusiv text simplu, titluri și liste "
+    "(cu «-» sau numerotate). NU folosi tabele Markdown — nu folosi caracterul "
+    "«|» pentru a alcătui coloane — și nu insera etichete HTML (de ex. «<br>»). "
+    "Pentru contractul educațional, prezintă fiecare parte ca un subtitlu în "
+    "bold (de ex. «**Angajamentul elevului:**», «**Angajamentul profesorului:**», "
+    "«**Angajamentul familiei:**») urmat de o listă cu angajamentele.\n"
     "Răspunde doar cu planul, fără explicații despre cum l-ai construit."
 )
 
@@ -288,12 +294,42 @@ def _claude_plan(
     return text
 
 
+def _gemini_response_text(response) -> tuple[str, bool]:
+    """Full visible answer text from a Gemini response + whether it was truncated.
+
+    Concatenates every non-thought text part across the candidate's content so a
+    multi-part answer is captured in full — ``response.text`` alone can miss
+    parts or come back empty when the model spent its token budget on thinking.
+    """
+    chunks: list[str] = []
+    truncated = False
+    for candidate in (getattr(response, "candidates", None) or []):
+        if str(getattr(candidate, "finish_reason", "")).endswith("MAX_TOKENS"):
+            truncated = True
+        content = getattr(candidate, "content", None)
+        for part in (getattr(content, "parts", None) or []):
+            if getattr(part, "thought", False):
+                continue  # internal reasoning, not the plan itself
+            piece = getattr(part, "text", None)
+            if piece:
+                chunks.append(piece)
+    text = "".join(chunks).strip()
+    if not text:  # last resort: the SDK convenience accessor
+        text = (getattr(response, "text", None) or "").strip()
+    return text, truncated
+
+
 def _gemini_plan(
     evaluation: RiskEvaluation, model: str, api_key: str,
     knowledge_text: str | None,
     questionnaire_answers: dict | None = None,
 ) -> str:
-    """Generate the plan with Gemini (Google). Raises on any SDK/API error."""
+    """Generate the plan with Gemini (Google).
+
+    One independent request per case, reading the model's *complete* response.
+    Thinking is bounded so it cannot consume the whole token budget and leave
+    the written plan truncated or empty. Raises on any SDK/API error.
+    """
     from google import genai  # lazy: keeps the app usable when the SDK is absent
     from google.genai import types
 
@@ -304,11 +340,17 @@ def _gemini_plan(
         config=types.GenerateContentConfig(
             system_instruction=_build_system_prompt(knowledge_text),
             max_output_tokens=config.LLM_MAX_TOKENS,
+            thinking_config=types.ThinkingConfig(
+                thinking_budget=config.GEMINI_THINKING_BUDGET
+            ),
         ),
     )
-    text = (response.text or "").strip()
+    text, truncated = _gemini_response_text(response)
     if not text:
-        raise RuntimeError("Răspuns gol de la model.")
+        raise RuntimeError(
+            "Răspuns trunchiat de Gemini (limita de tokeni)." if truncated
+            else "Răspuns gol de la model."
+        )
     return text
 
 

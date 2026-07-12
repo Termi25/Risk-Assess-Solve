@@ -85,22 +85,51 @@ def _age_from_birth_date(value) -> float | None:
     return float(max(0, years))
 
 
+# Answers to Q13 that mean "no grades below 5".
+_NO_LOW_GRADES = {
+    "", "-", "—", "nu", "n/a", "na", "nu e cazul", "nu este cazul",
+    "niciuna", "niciun", "nicio", "nimic", "0",
+}
+# Qualitative marks used in Romanian primary school (clasele 0–IV): only
+# "Insuficient" is below the passing line — "Suficient"/"Bine"/"Foarte bine"
+# all pass, so they must NOT be counted as grades below 5.
+_FAILING_QUALIFIER_RE = re.compile(r"insuficient", re.IGNORECASE)
+
+
 def _count_low_grades(value) -> int:
+    """Number of grades below 5 described in the free-text answer to Q13.
+
+    Robust to the two ways teachers fill this in:
+      * numeric grades ("4 Matematică; 3 Română") -> distinct values below 5;
+      * qualitative primary-school marks -> only "Insuficient" counts as a
+        failing mark ("Suficient"/"Bine"/"Foarte bine" are passing).
+
+    Descriptive text that names neither a grade below 5 nor an "Insuficient"
+    mark (e.g. "Suficient, limba română, matematică") counts as zero. The older
+    fallback split such text on commas and mis-read the passing mark and the
+    subject names as three separate failing grades.
+    """
     if not value:
         return 0
-    text = str(value)
+    text = str(value).strip()
+    if text.lower() in _NO_LOW_GRADES:
+        return 0
+
+    # 1. Explicit numeric grades below 5 (distinct; Romanian grades are 1–10).
     grades: set[int] = set()
     for match in re.findall(r"\b\d+(?:[.,]\d+)?\b", text):
         try:
             grade = float(match.replace(",", "."))
         except ValueError:
             continue
-        if grade < 5.0:
+        if 1.0 <= grade < 5.0:
             grades.add(int(grade))
     if grades:
         return len(grades)
-    parts = [chunk.strip() for chunk in re.split(r"[;\n,|]+", text) if chunk.strip()]
-    return len(parts)
+
+    # 2. No numeric grade: count qualitative failing marks ("Insuficient").
+    #    Passing marks and plain subject lists therefore yield zero.
+    return len(_FAILING_QUALIFIER_RE.findall(text))
 
 
 def _studentship_score(values: dict) -> float:
@@ -225,8 +254,11 @@ def generate_synthetic_dataset(
         n_samples,
         p=[0.09, 0.24, 0.31, 0.11, 0.22, 0.03],
     )
-    absente_ne = rng.integers(0, 22, n_samples)
-    absente_mot = rng.integers(0, 12, n_samples)
+    # Absences on the questionnaire's 3-month, per-class-hour scale (right-skewed:
+    # most students low, a disengaged tail into the hundreds). The old 0–21 range
+    # made any real 3-month total out-of-distribution and saturated the model.
+    absente_ne = np.clip(rng.gamma(1.4, 34.0, n_samples), 0, 300).round().astype(int)
+    absente_mot = np.clip(rng.gamma(1.5, 22.0, n_samples), 0, 200).round().astype(int)
     extrac = rng.choice(["Da, frecvent", "Ocazional", "Nu"], n_samples, p=[0.36, 0.34, 0.3])
     medie = np.clip(rng.normal(7.1, 1.4, n_samples), 1.0, 10.0).round(1)
     note_sub_5 = rng.integers(0, 6, n_samples)
@@ -278,24 +310,76 @@ def generate_synthetic_dataset(
         }
     )
 
-    # Non-linear risk definition (the "Day 14" model), extended so the NLP
-    # stress signal is a genuine driver rather than decorative.
-    df[config.TARGET_COLUMN] = np.where(
-        (df["Absente_Nemotivate_Zilele_1_13"] > 12)
-        | ((df["Medie_Modul_Anterior"] < 5.5) & (df["Studentship_Score"] <= 4))
-        | ((df["Note_Sub_5"] >= 3) & (df["Sanctiuni_Avertismente"] != "Nu"))
-        | ((df["Scoala_Ajuta_Obiective"] == "Nu") & (df["Atitudine_Scoala"] == "Negativă") & (df["Participare_Extrascolara"] == "Nu"))
-        | (
-            (df["Situatie_Familiala"] != "Ambii părinți")
-            & (df["Absente_Nemotivate_Zilele_1_13"] > 7)
-            & (df["Stres_Emotional_NLP"] >= 0.8)
-        )
-        | ((df["Cum_te_Simti_La_Scoala"].isin(["Stresat", "Izolat"])) & (df["Stres_Emotional_NLP"] >= 1.1) & (df["Studentship_Score"] <= 5))
-        | ((df["Age_Years"] >= 17) & (df["Medie_Modul_Anterior"] < 6.0) & (df["Absente_Nemotivate_Zilele_1_13"] > 5)),
-        1,
-        0,
-    )
+    # Graded "Day 14" risk: the dropout probability is a smooth (logistic)
+    # function of the drivers, so the trained model yields a calibrated spread
+    # across the four risk tiers instead of the old hard-threshold rules, which
+    # saturated every student with more than 12 absences to ~100%.
+    #
+    # The coefficients (calibrated in _RISK_LOGIT) encode the intended structure:
+    # absences dominate only at *extreme* levels (a saturating term), while a
+    # good module average, engagement and low emotional stress are genuine
+    # protective factors. This reproduces the counter-intuitive but correct
+    # ordering where a student with more absences but a solid average and only
+    # stress-driven disengagement ranks *below* one with fewer absences but
+    # sanctions, no support and total disinterest.
+    prob = _risk_probability(df)
+    df[config.TARGET_COLUMN] = (rng.random(n_samples) < prob).astype(int)
     return df
+
+
+# Calibrated logistic risk model behind the synthetic labels. Kept as a module
+# constant so the same structure documents the "Day 14" scoring rationale.
+_RISK_LOGIT = {
+    "intercept": -1.877,
+    "unexcused": 1.074,   # x saturating min(3.5, unexcused/70) — extreme absences dominate
+    "excused": 0.044,     # x saturating min(1.0, excused/80); justified absences weigh little
+    "avg_dev": -1.137,    # per point of (module average - 6.5); a strong protective factor
+    "studentship": -0.098,
+    "attitude": 0.337,    # Negativă +1 / Neutră 0 / Pozitivă -1
+    "participation": 0.356,   # Nu +1 / Ocazional 0 / Da, frecvent -1
+    "sanctions": 0.626,   # Nu 0 / Avertismente +1 / Sancțiuni +2
+    "support": 0.490,     # Nu +1 / Parțial 0 / Da -1
+    "stress": 0.316,      # Stres_Emotional_NLP in [0, 2]
+    "family": 0.247,      # Ambii părinți -1 / Monoparental +0.5 / Tutore +1 / Altă +0.7
+    "education": 0.233,   # mean of mother/father education risk
+    "age": 0.085,         # per year above 16 (older-in-cohort → higher risk)
+}
+_ATTITUDE_RISK = {"Negativă": 1.0, "Neutră": 0.0, "Pozitivă": -1.0}
+_PARTICIPATION_RISK = {"Nu": 1.0, "Ocazional": 0.0, "Da, frecvent": -1.0}
+_SANCTIONS_RISK = {"Nu": 0.0, "Avertismente": 1.0, "Sancțiuni": 2.0}
+_SUPPORT_RISK = {"Nu": 1.0, "Parțial": 0.0, "Da": -1.0}
+_FAMILY_RISK = {"Ambii părinți": -1.0, "Monoparental": 0.5, "Tutore / plasament": 1.0, "Altă situație": 0.7}
+_EDUCATION_RISK = {
+    "Necunoscut": 0.5, "Primar": 0.5, "Gimnazial": 0.2,
+    "Liceal": 0.0, "Postliceal": -0.3, "Universitar": -0.3,
+}
+
+
+def _risk_probability(df: pd.DataFrame) -> np.ndarray:
+    """Dropout probability P(abandon) for each row, from the calibrated logit."""
+    b = _RISK_LOGIT
+    ne = df["Absente_Nemotivate_Zilele_1_13"].to_numpy(dtype=float)
+    mot = df["Absente_Motivate_3_Luni"].to_numpy(dtype=float)
+    edu = (
+        df["Educatie_Mama"].map(_EDUCATION_RISK).to_numpy(dtype=float)
+        + df["Educatie_Tata"].map(_EDUCATION_RISK).to_numpy(dtype=float)
+    ) / 2.0
+    z = (
+        b["intercept"]
+        + b["unexcused"] * np.minimum(3.5, ne / 70.0)
+        + b["excused"] * np.minimum(1.0, mot / 80.0)
+        + b["avg_dev"] * (df["Medie_Modul_Anterior"].to_numpy(dtype=float) - 6.5)
+        + b["studentship"] * df["Studentship_Score"].to_numpy(dtype=float)
+        + b["attitude"] * df["Atitudine_Scoala"].map(_ATTITUDE_RISK).to_numpy(dtype=float)
+        + b["participation"] * df["Participare_Extrascolara"].map(_PARTICIPATION_RISK).to_numpy(dtype=float)
+        + b["sanctions"] * df["Sanctiuni_Avertismente"].map(_SANCTIONS_RISK).to_numpy(dtype=float)
+        + b["support"] * df["Scoala_Ajuta_Obiective"].map(_SUPPORT_RISK).to_numpy(dtype=float)
+        + b["stress"] * df["Stres_Emotional_NLP"].to_numpy(dtype=float)
+        + b["family"] * df["Situatie_Familiala"].map(_FAMILY_RISK).to_numpy(dtype=float)
+        + b["education"] * edu
+        + b["age"] * np.maximum(0.0, df["Age_Years"].to_numpy(dtype=float) - 16.0)
+    )
+    return 1.0 / (1.0 + np.exp(-z))
 
 
 # --- Trained model wrapper --------------------------------------------------
