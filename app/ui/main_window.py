@@ -61,12 +61,16 @@ class BatchImportWorker(QThread):
     """
 
     progress = Signal(int, int, str)   # done, total, phase label
-    done = Signal(object)              # {"out_dir", "count", "summary_path"}
+    done = Signal(object)              # {"out_dir", "count", "summary_path", "run"}
     failed = Signal(str)
 
-    def __init__(self, service: AssessmentService, cases: list, out_dir: str):
+    def __init__(
+        self, service: AssessmentService, cases: list, out_dir: str,
+        source_name: str = "",
+    ):
         super().__init__()
         self._service, self._cases, self._out_dir = service, cases, out_dir
+        self._source_name = source_name
 
     def run(self) -> None:  # noqa: D401
         import os
@@ -84,12 +88,16 @@ class BatchImportWorker(QThread):
             )
 
             entries: list[tuple[StudentCase, object]] = []
+            call_metrics: list = []   # one CallMetric per student report
             for index, (case, result) in enumerate(zip(cases, results), start=1):
                 evaluation = result.evaluation
                 # Use the configured AI provider when a key is available (same as
                 # the single-student flow); generate_plan falls back to the local
-                # template per student if the cloud call fails.
-                plan_text, _source = self._service.generate_plan(evaluation, case)
+                # template per student if the cloud call fails. Each call's
+                # latency/tokens/cost is captured into ``call_metrics``.
+                plan_text, _source = self._service.generate_plan(
+                    evaluation, case, metric_out=call_metrics
+                )
                 html = build_report_html(case, result, plan_text)
                 stem = _safe_stem(case.display_name(), f"elev_{index}")
                 pdf_path = os.path.join(self._out_dir, f"raport_{index:02d}_{stem}.pdf")
@@ -103,8 +111,14 @@ class BatchImportWorker(QThread):
             summary_path = os.path.join(self._out_dir, "raport_general.pdf")
             export_report_pdf(summary_path, summary_html)
 
+            from ..metrics import RunMetrics
+            run = RunMetrics.for_calls("import", call_metrics, label=self._source_name)
+
             self.done.emit(
-                {"out_dir": self._out_dir, "count": total, "summary_path": summary_path}
+                {
+                    "out_dir": self._out_dir, "count": total,
+                    "summary_path": summary_path, "run": run,
+                }
             )
         except Exception as exc:  # surfaced to the UI, never crashes the app
             self.failed.emit(f"{type(exc).__name__}: {exc}\n\n{traceback.format_exc()}")
@@ -193,6 +207,11 @@ class MainWindow(QMainWindow):
         act_metrics = QAction("Metrici model…", self)
         act_metrics.triggered.connect(self._on_metrics)
         model_menu.addAction(act_metrics)
+
+        perf_menu = self.menuBar().addMenu("&Performanță")
+        act_perf = QAction("Metrici pe rulare (latență / cost)…", self)
+        act_perf.triggered.connect(self._on_perf_metrics)
+        perf_menu.addAction(act_perf)
 
         help_menu = self.menuBar().addMenu("&Ajutor")
         act_about = QAction("Despre", self)
@@ -476,10 +495,19 @@ class MainWindow(QMainWindow):
         self._set_busy(True, "Se generează planul de intervenție…")
         self.plan_text.setPlainText("Se generează…")
         self._start_worker(
-            self.service.generate_plan, self._on_plan_done,
+            self._generate_plan_measured, self._on_plan_done,
             self.current_result.evaluation,
             self.current_case,
         )
+
+    def _generate_plan_measured(self, evaluation, case):
+        """Generate one plan and record it as a single-report performance run."""
+        from ..metrics import RunMetrics, get_store
+        calls: list = []
+        text, source = self.service.generate_plan(evaluation, case, metric_out=calls)
+        label = case.display_name() if case else ""
+        get_store().add(RunMetrics.for_calls("single", calls, label=label))
+        return text, source
 
     def _on_plan_done(self, payload) -> None:
         text, source = payload
@@ -577,8 +605,11 @@ class MainWindow(QMainWindow):
         if not out_dir:
             return
 
+        import os
         self._set_busy(True, "Se importă și se evaluează elevii…")
-        worker = BatchImportWorker(self.service, cases, out_dir)
+        worker = BatchImportWorker(
+            self.service, cases, out_dir, source_name=os.path.basename(xlsx_path)
+        )
         worker.progress.connect(self._on_batch_progress)
         worker.done.connect(self._on_batch_done)
         worker.failed.connect(self._on_batch_error)
@@ -597,17 +628,37 @@ class MainWindow(QMainWindow):
     def _on_batch_done(self, payload: dict) -> None:
         out_dir = payload["out_dir"]
         count = payload["count"]
+        run = payload.get("run")
+        if run is not None:
+            from ..metrics import fmt_cost, fmt_seconds, get_store
+            get_store().add(run)
         self._set_busy(
             False, f"Import complet: {count} rapoarte + raport general în {out_dir}"
         )
         box = QMessageBox(self)
         box.setIcon(QMessageBox.Information)
         box.setWindowTitle("Import finalizat")
-        box.setText(
+        text = (
             f"Au fost evaluați {count} elevi.\n\n"
             f"S-au generat {count} rapoarte individuale și un raport general "
             f"(raport_general.pdf) în:\n{out_dir}"
         )
+        if run is not None:
+            priced = run.pricing_available
+            cost = fmt_cost(run.total_cost if priced else None)
+            per_report = fmt_cost(run.cost_per_report if priced else None)
+            per_cloud_call = fmt_cost(run.cost_per_cloud_call if priced else None)
+            text += (
+                "\n\nPerformanță:\n"
+                f"• Apeluri cloud: {run.cloud_calls} din {run.report_count}\n"
+                f"• Latență totală: {fmt_seconds(run.total_latency_s)} "
+                f"({fmt_seconds(run.avg_latency_s)} / raport)\n"
+                f"• Cost total: {cost}\n"
+                f"• Cost / raport (toate): {per_report}\n"
+                f"• Cost / apel cloud reușit: {per_cloud_call}\n"
+                "Detalii complete în meniul „Performanță”."
+            )
+        box.setText(text)
         open_btn = box.addButton("Deschide folderul", QMessageBox.AcceptRole)
         box.addButton("Închide", QMessageBox.RejectRole)
         box.exec()
@@ -658,6 +709,10 @@ class MainWindow(QMainWindow):
         box.setText(msg)
         box.setFont(QFont("Consolas", 9))
         box.exec()
+
+    def _on_perf_metrics(self) -> None:
+        from .metrics_dialog import MetricsDialog
+        MetricsDialog(self).exec()
 
     def _on_about(self) -> None:
         QMessageBox.about(

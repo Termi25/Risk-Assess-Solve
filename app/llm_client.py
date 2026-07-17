@@ -274,8 +274,14 @@ def _claude_plan(
     evaluation: RiskEvaluation, model: str, api_key: str,
     knowledge_text: str | None,
     questionnaire_answers: dict | None = None,
-) -> str:
-    """Generate the plan with Claude (Anthropic). Raises on any SDK/API error."""
+) -> tuple[str, dict]:
+    """Generate the plan with Claude (Anthropic). Raises on any SDK/API error.
+
+    Returns ``(plan_text, usage)`` where ``usage`` is the provider-reported token
+    accounting (``input_tokens`` / ``output_tokens`` / ``thinking_tokens``);
+    Anthropic bills reasoning within ``output_tokens``, so ``thinking_tokens``
+    stays 0 here.
+    """
     import anthropic  # lazy: keeps the app usable when the SDK is absent
 
     client = anthropic.Anthropic(api_key=api_key)
@@ -291,7 +297,12 @@ def _claude_plan(
     ).strip()
     if not text:
         raise RuntimeError("Răspuns gol de la model.")
-    return text
+    usage = getattr(response, "usage", None)
+    return text, {
+        "input_tokens": int(getattr(usage, "input_tokens", 0) or 0),
+        "output_tokens": int(getattr(usage, "output_tokens", 0) or 0),
+        "thinking_tokens": 0,
+    }
 
 
 def _gemini_response_text(response) -> tuple[str, bool]:
@@ -319,16 +330,31 @@ def _gemini_response_text(response) -> tuple[str, bool]:
     return text, truncated
 
 
+def _gemini_usage(response) -> dict:
+    """Provider-reported token accounting from a Gemini response.
+
+    ``candidates_token_count`` is the visible answer; ``thoughts_token_count`` is
+    the reasoning, billed at the output rate. Any field may be absent/None.
+    """
+    meta = getattr(response, "usage_metadata", None)
+    return {
+        "input_tokens": int(getattr(meta, "prompt_token_count", 0) or 0),
+        "output_tokens": int(getattr(meta, "candidates_token_count", 0) or 0),
+        "thinking_tokens": int(getattr(meta, "thoughts_token_count", 0) or 0),
+    }
+
+
 def _gemini_plan(
     evaluation: RiskEvaluation, model: str, api_key: str,
     knowledge_text: str | None,
     questionnaire_answers: dict | None = None,
-) -> str:
+) -> tuple[str, dict]:
     """Generate the plan with Gemini (Google).
 
     One independent request per case, reading the model's *complete* response.
     Thinking is bounded so it cannot consume the whole token budget and leave
-    the written plan truncated or empty. Raises on any SDK/API error.
+    the written plan truncated or empty. Raises on any SDK/API error. Returns
+    ``(plan_text, usage)`` with the provider-reported token counts.
     """
     from google import genai  # lazy: keeps the app usable when the SDK is absent
     from google.genai import types
@@ -351,7 +377,7 @@ def _gemini_plan(
             "Răspuns trunchiat de Gemini (limita de tokeni)." if truncated
             else "Răspuns gol de la model."
         )
-    return text
+    return text, _gemini_usage(response)
 
 
 # Dispatch table: one cloud backend per provider id (see config.LLM_PROVIDERS).
@@ -365,10 +391,30 @@ def _cloud_plan(
     evaluation: RiskEvaluation, provider: config.LLMProvider, api_key: str,
     knowledge_text: str | None = None,
     questionnaire_answers: dict | None = None,
-) -> str:
-    """Generate the plan via ``provider``. Raises on any SDK/API error."""
+) -> tuple[str, dict]:
+    """Generate the plan via ``provider``. Raises on any SDK/API error.
+
+    Returns ``(plan_text, usage)`` — the provider-reported token accounting.
+    """
     backend = _CLOUD_BACKENDS[provider.id]
     return backend(evaluation, provider.default_model, api_key, knowledge_text, questionnaire_answers)
+
+
+def _record_metric(
+    metric_out: list | None, provider: config.LLMProvider, *,
+    source: str, ok: bool, latency_s: float,
+    usage: dict | None = None, error: str = "",
+) -> None:
+    """Append a performance metric for this call to ``metric_out`` (if given)."""
+    if metric_out is None:
+        return
+    from . import metrics  # lazy: metrics is only pulled in when someone measures
+    metric_out.append(
+        metrics.CallMetric.build(
+            provider_id=provider.id, model=provider.default_model,
+            source=source, ok=ok, latency_s=latency_s, usage=usage, error=error,
+        )
+    )
 
 
 def generate_action_plan(
@@ -378,6 +424,7 @@ def generate_action_plan(
     knowledge_text: str | None = None,
     questionnaire_answers: dict | None = None,
     observation_text: str | None = None,
+    metric_out: list | None = None,
 ) -> tuple[str, str]:
     """Return (plan_text, source). Never raises — falls back to the template.
 
@@ -385,24 +432,49 @@ def generate_action_plan(
     in Settings is used. ``knowledge_text`` (optional) is the user's imported
     .docx knowledge base; when present it grounds the cloud generation. It is
     not used by the local template (which is rule-based).
+
+    ``metric_out`` (optional): a list to which a single
+    :class:`metrics.CallMetric` is appended, capturing the call's latency, token
+    usage and derived cost. Leaving it ``None`` skips all measurement.
     """
+    import time
+
     from . import settings  # lazy: avoids an import cycle at module load
 
     pid = provider_id or settings.get_active_provider()
     provider = config.get_provider(pid)
     key = api_key or keystore.resolve_api_key(pid)
     if key:
+        start = time.perf_counter()
         try:
-            plan = _cloud_plan(evaluation, provider, key, knowledge_text, questionnaire_answers)
+            plan, usage = _cloud_plan(
+                evaluation, provider, key, knowledge_text, questionnaire_answers
+            )
+            latency = time.perf_counter() - start
             source = f"cloud ({provider.label})"
             if knowledge_text:
                 source += " + bază de cunoștințe"
+            _record_metric(
+                metric_out, provider, source="cloud", ok=True,
+                latency_s=latency, usage=usage,
+            )
             return plan, source
         except Exception as exc:  # offline-first: degrade gracefully
+            latency = time.perf_counter() - start
             plan = _local_plan(evaluation, questionnaire_answers, observation_text)
             note = (
                 "\n\n[Notă: generarea în cloud a eșuat "
                 f"({type(exc).__name__}); s-a folosit planul local.]"
             )
+            _record_metric(
+                metric_out, provider, source="local-fallback", ok=False,
+                latency_s=latency, error=f"{type(exc).__name__}: {exc}",
+            )
             return plan + note, "local template (cloud indisponibil)"
-    return _local_plan(evaluation, questionnaire_answers, observation_text), "local template"
+    start = time.perf_counter()
+    plan = _local_plan(evaluation, questionnaire_answers, observation_text)
+    _record_metric(
+        metric_out, provider, source="local", ok=False,
+        latency_s=time.perf_counter() - start,
+    )
+    return plan, "local template"
