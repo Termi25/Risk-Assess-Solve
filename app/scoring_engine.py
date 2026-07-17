@@ -24,8 +24,19 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from imblearn.over_sampling import SMOTENC
-from sklearn.metrics import accuracy_score, classification_report, roc_auc_score
-from sklearn.model_selection import train_test_split
+from sklearn.metrics import (
+    accuracy_score,
+    average_precision_score,
+    balanced_accuracy_score,
+    brier_score_loss,
+    classification_report,
+    confusion_matrix,
+    f1_score,
+    matthews_corrcoef,
+    precision_score,
+    roc_auc_score,
+)
+from sklearn.model_selection import StratifiedKFold, cross_validate, train_test_split
 from xgboost import XGBClassifier
 
 from . import config
@@ -392,6 +403,32 @@ class TrainingMetrics:
     balance_before: dict[str, int]
     balance_after: dict[str, int]
     report_text: str
+    # --- extended conventional metrics (the dropout-literature standard) ----
+    # All computed on the un-resampled held-out test set, so they describe the
+    # model's behaviour on the real class balance (SMOTE-NC touches only train).
+    pr_auc: float = float("nan")            # average precision (PR-AUC)
+    balanced_accuracy: float = float("nan")
+    precision_dropout: float = float("nan")  # positive ("Abandon") class
+    recall_dropout: float = float("nan")     # = sensitivity
+    specificity: float = float("nan")        # recall of the negative class
+    f1_dropout: float = float("nan")
+    g_mean: float = float("nan")             # sqrt(sensitivity * specificity)
+    mcc: float = float("nan")                # Matthews correlation coefficient
+    brier: float = float("nan")             # calibration error (lower is better)
+    confusion: list = field(default_factory=list)   # [[tn, fp], [fn, tp]]
+    # --- stratified k-fold CV (SMOTE-NC re-fit inside each fold; mean ± SD) --
+    cv_folds: int = 0
+    cv_accuracy_mean: float = float("nan")
+    cv_accuracy_std: float = float("nan")
+    cv_roc_auc_mean: float = float("nan")
+    cv_roc_auc_std: float = float("nan")
+    cv_pr_auc_mean: float = float("nan")
+    cv_pr_auc_std: float = float("nan")
+    cv_f1_mean: float = float("nan")
+    cv_f1_std: float = float("nan")
+    # --- reproduction parameters (so metric images regenerate the exact split)
+    n_samples: int = 0
+    seed: int = 0
 
 
 @dataclass
@@ -425,39 +462,17 @@ class RiskModel:
 
 
 # --- Training ---------------------------------------------------------------
-def train_model(
-    n_samples: int = config.TRAIN_SAMPLES,
-    seed: int = config.RANDOM_SEED,
-) -> tuple[RiskModel, TrainingMetrics]:
-    """Train the XGBoost dropout-risk model with SMOTE-NC balancing."""
-    df = generate_synthetic_dataset(n_samples, seed)
+# Test-set fraction and CV fold count. TEST_SIZE is a module constant so the
+# train/test partition can be reproduced identically for the metric plots
+# (``holdout_predictions``), and CV_FOLDS documents the k reported in the paper.
+TEST_SIZE = 0.25
+CV_FOLDS = 5
 
-    X = _encode_dataframe(df[list(config.FEATURE_KEYS)])
-    y = df[config.TARGET_COLUMN].astype(int)
 
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.25, random_state=seed, stratify=y
-    )
-
-    balance_before = {str(k): int(v) for k, v in y_train.value_counts().items()}
-    n_before = int(len(y_train))
-
-    # SMOTE-NC needs k_neighbors < size of the minority class.
-    minority = int(y_train.value_counts().min())
-    k_neighbors = max(1, min(5, minority - 1))
-    smote = SMOTENC(
-        categorical_features=config.CATEGORICAL_INDICES,
-        random_state=seed,
-        k_neighbors=k_neighbors,
-    )
-    resampled = smote.fit_resample(X_train, y_train)
-    X_res = resampled[0]
-    y_res = resampled[1]
-
-    balance_after = {str(k): int(v) for k, v in pd.Series(np.asarray(y_res)).value_counts().items()}
-    n_after = int(len(y_res))
-
-    clf = XGBClassifier(
+def _make_classifier(seed: int) -> XGBClassifier:
+    """The single source of truth for the model's hyper-parameters, shared by
+    the final fit and the cross-validation pipeline so both agree."""
+    return XGBClassifier(
         n_estimators=100,
         max_depth=4,
         learning_rate=0.05,
@@ -466,6 +481,108 @@ def train_model(
         eval_metric="logloss",
         random_state=seed,
     )
+
+
+def _prepare_xy(n_samples: int, seed: int) -> tuple[pd.DataFrame, pd.Series]:
+    """Regenerate the encoded synthetic dataset (features X, target y)."""
+    df = generate_synthetic_dataset(n_samples, seed)
+    X = _encode_dataframe(df[list(config.FEATURE_KEYS)])
+    y = df[config.TARGET_COLUMN].astype(int)
+    return X, y
+
+
+def _smote_k(minority: int) -> int:
+    """A safe ``k_neighbors`` for SMOTE-NC: strictly below the minority count."""
+    return max(1, min(5, minority - 1))
+
+
+def _cross_val_metrics(X: pd.DataFrame, y: pd.Series, seed: int, folds: int) -> dict:
+    """Stratified k-fold CV with SMOTE-NC re-fit *inside* each fold.
+
+    Resampling lives in an imbalanced-learn pipeline so it only ever sees each
+    fold's training partition — evaluating on untouched, real-balance folds and
+    avoiding the optimistic leakage of oversampling before the split. Returns
+    mean ± SD for accuracy, ROC-AUC, PR-AUC and F1 (empty on failure)."""
+    try:
+        from imblearn.pipeline import Pipeline as ImbPipeline
+
+        # Guard k against the smallest minority a training fold can hold.
+        fold_minority = int(y.value_counts().min() * (folds - 1) / folds)
+        pipe = ImbPipeline([
+            ("smote", SMOTENC(
+                categorical_features=config.CATEGORICAL_INDICES,
+                random_state=seed,
+                k_neighbors=_smote_k(fold_minority),
+            )),
+            ("clf", _make_classifier(seed)),
+        ])
+        cv = StratifiedKFold(n_splits=folds, shuffle=True, random_state=seed)
+        scores = cross_validate(
+            pipe, X, y, cv=cv,
+            scoring={
+                "accuracy": "accuracy",
+                "roc_auc": "roc_auc",
+                "pr_auc": "average_precision",
+                "f1": "f1",
+            },
+        )
+    except Exception:
+        return {}
+
+    def pair(metric: str) -> tuple[float, float]:
+        arr = np.asarray(scores[f"test_{metric}"], dtype=float)
+        return float(arr.mean()), float(arr.std())
+
+    acc_m, acc_s = pair("accuracy")
+    auc_m, auc_s = pair("roc_auc")
+    pr_m, pr_s = pair("pr_auc")
+    f1_m, f1_s = pair("f1")
+    return {
+        "cv_folds": folds,
+        "cv_accuracy_mean": acc_m, "cv_accuracy_std": acc_s,
+        "cv_roc_auc_mean": auc_m, "cv_roc_auc_std": auc_s,
+        "cv_pr_auc_mean": pr_m, "cv_pr_auc_std": pr_s,
+        "cv_f1_mean": f1_m, "cv_f1_std": f1_s,
+    }
+
+
+def train_model(
+    n_samples: int = config.TRAIN_SAMPLES,
+    seed: int = config.RANDOM_SEED,
+    cv_folds: int = CV_FOLDS,
+) -> tuple[RiskModel, TrainingMetrics]:
+    """Train the XGBoost dropout-risk model with SMOTE-NC balancing.
+
+    Besides the headline accuracy/ROC-AUC, this reports the conventional
+    imbalanced-classification suite used across the dropout literature (PR-AUC,
+    balanced accuracy, sensitivity/specificity, G-mean, MCC, Brier calibration
+    and the confusion matrix), plus a stratified ``cv_folds``-fold cross-
+    validation (pass ``cv_folds=0`` to skip it). All test-set figures are on the
+    un-resampled hold-out."""
+    X, y = _prepare_xy(n_samples, seed)
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=TEST_SIZE, random_state=seed, stratify=y
+    )
+
+    balance_before = {str(k): int(v) for k, v in y_train.value_counts().items()}
+    n_before = int(len(y_train))
+
+    # SMOTE-NC needs k_neighbors < size of the minority class.
+    minority = int(y_train.value_counts().min())
+    smote = SMOTENC(
+        categorical_features=config.CATEGORICAL_INDICES,
+        random_state=seed,
+        k_neighbors=_smote_k(minority),
+    )
+    resampled = smote.fit_resample(X_train, y_train)
+    X_res = resampled[0]
+    y_res = resampled[1]
+
+    balance_after = {str(k): int(v) for k, v in pd.Series(np.asarray(y_res)).value_counts().items()}
+    n_after = int(len(y_res))
+
+    clf = _make_classifier(seed)
     clf.fit(X_res, y_res)
 
     y_pred = clf.predict(X_test)
@@ -477,6 +594,20 @@ def train_model(
         roc_auc = float("nan")
     report_text = str(classification_report(y_test, y_pred, zero_division=0))
 
+    # Confusion matrix (fixed [0, 1] order) and the derived rate metrics.
+    cm = confusion_matrix(y_test, y_pred, labels=[0, 1])
+    tn, fp, fn, tp = (int(v) for v in cm.ravel())
+    specificity = tn / (tn + fp) if (tn + fp) else float("nan")
+    sensitivity = tp / (tp + fn) if (tp + fn) else float("nan")
+    if np.isnan(sensitivity) or np.isnan(specificity):
+        g_mean = float("nan")
+    else:
+        g_mean = float(np.sqrt(max(0.0, sensitivity) * max(0.0, specificity)))
+    try:
+        pr_auc = float(average_precision_score(y_test, y_proba))
+    except ValueError:
+        pr_auc = float("nan")
+
     metrics = TrainingMetrics(
         accuracy=accuracy,
         roc_auc=roc_auc,
@@ -485,7 +616,23 @@ def train_model(
         balance_before=balance_before,
         balance_after=balance_after,
         report_text=report_text,
+        pr_auc=pr_auc,
+        balanced_accuracy=float(balanced_accuracy_score(y_test, y_pred)),
+        precision_dropout=float(precision_score(y_test, y_pred, pos_label=1, zero_division=0)),
+        recall_dropout=float(sensitivity),
+        specificity=float(specificity),
+        f1_dropout=float(f1_score(y_test, y_pred, pos_label=1, zero_division=0)),
+        g_mean=g_mean,
+        mcc=float(matthews_corrcoef(y_test, y_pred)),
+        brier=float(brier_score_loss(y_test, y_proba)),
+        confusion=[[tn, fp], [fn, tp]],
+        n_samples=int(n_samples),
+        seed=int(seed),
     )
+
+    if cv_folds and cv_folds > 1:
+        for key, value in _cross_val_metrics(X, y, seed, cv_folds).items():
+            setattr(metrics, key, value)
 
     version = f"xgb-day14-n{n_samples}-s{seed}-{datetime.now():%Y%m%d}"
     meta = ModelMeta(
@@ -494,6 +641,26 @@ def train_model(
         metrics=asdict(metrics),
     )
     return RiskModel(clf, meta), metrics
+
+
+def holdout_predictions(
+    model: RiskModel,
+    n_samples: int = config.TRAIN_SAMPLES,
+    seed: int = config.RANDOM_SEED,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Reproduce the held-out test set and the model's predictions on it.
+
+    Deterministic: the same ``seed`` regenerates the same synthetic data and the
+    same stratified split used during training, so the returned arrays match the
+    reported test metrics exactly. This is what the metric plots draw from,
+    without persisting any arrays. Returns ``(y_true, y_pred, y_proba)``."""
+    X, y = _prepare_xy(n_samples, seed)
+    _, X_test, _, y_test = train_test_split(
+        X, y, test_size=TEST_SIZE, random_state=seed, stratify=y
+    )
+    y_proba = model.clf.predict_proba(X_test)[:, 1]
+    y_pred = model.clf.predict(X_test)
+    return y_test.to_numpy(), np.asarray(y_pred), np.asarray(y_proba, dtype=float)
 
 
 # --- Persistence ------------------------------------------------------------

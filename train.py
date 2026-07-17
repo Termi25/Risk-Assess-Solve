@@ -28,9 +28,26 @@ def _print_metrics(metrics) -> None:
     print("=" * 60)
     print("REZULTATE ANTRENARE MODEL (EWS 'Day 14')")
     print("=" * 60)
-    print(f"Acuratețe (test):     {metrics.accuracy:.3f}")
-    print(f"ROC AUC (test):       {metrics.roc_auc:.3f}")
-    print(f"Distribuție înainte de SMOTE-NC: {metrics.balance_before} "
+    print(f"Acuratețe (test):        {metrics.accuracy:.3f}")
+    print(f"Acuratețe echilibrată:   {metrics.balanced_accuracy:.3f}")
+    print(f"ROC AUC (test):          {metrics.roc_auc:.3f}")
+    print(f"PR-AUC (avg. precision): {metrics.pr_auc:.3f}")
+    print(f"Precizie (abandon):      {metrics.precision_dropout:.3f}")
+    print(f"Recall / sensibilitate:  {metrics.recall_dropout:.3f}")
+    print(f"Specificitate:           {metrics.specificity:.3f}")
+    print(f"F1 (abandon):            {metrics.f1_dropout:.3f}")
+    print(f"G-mean:                  {metrics.g_mean:.3f}")
+    print(f"MCC (Matthews):          {metrics.mcc:.3f}")
+    print(f"Brier (calibrare, ↓):    {metrics.brier:.3f}")
+    print(f"Matrice de confuzie [[TN, FP], [FN, TP]]: {metrics.confusion}")
+    if metrics.cv_folds:
+        print(f"\nValidare încrucișată stratificată ({metrics.cv_folds}-fold, "
+              f"SMOTE-NC în fiecare fold):")
+        print(f"  Acuratețe: {metrics.cv_accuracy_mean:.3f} ± {metrics.cv_accuracy_std:.3f}")
+        print(f"  ROC-AUC:   {metrics.cv_roc_auc_mean:.3f} ± {metrics.cv_roc_auc_std:.3f}")
+        print(f"  PR-AUC:    {metrics.cv_pr_auc_mean:.3f} ± {metrics.cv_pr_auc_std:.3f}")
+        print(f"  F1:        {metrics.cv_f1_mean:.3f} ± {metrics.cv_f1_std:.3f}")
+    print(f"\nDistribuție înainte de SMOTE-NC: {metrics.balance_before} "
           f"(n={metrics.n_before})")
     print(f"Distribuție după SMOTE-NC:       {metrics.balance_after} "
           f"(n={metrics.n_after})")
@@ -69,6 +86,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--seed", type=int, default=config.RANDOM_SEED)
     parser.add_argument("--plot", metavar="PATH", default=None,
                         help="Exportă graficul SHAP summary (necesită matplotlib).")
+    parser.add_argument("--metrics-dir", metavar="DIR", default=None,
+                        help="Exportă întreaga suită de grafice cu metrici "
+                             "(confuzie, ROC, precizie-recall, calibrare, SHAP, "
+                             "sumar) în DIR/metrici_model/.")
     args = parser.parse_args(argv)
 
     model, metrics = train_model(n_samples=args.samples, seed=args.seed)
@@ -80,6 +101,11 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.plot:
         _export_shap_plot(model, args.plot, args.samples, args.seed)
+
+    if args.metrics_dir:
+        from app.model_report import save_metric_images
+        target, created = save_metric_images(model, args.metrics_dir)
+        print(f"\nGrafice metrici salvate ({len(created)}): {target}")
 
     return 0
 

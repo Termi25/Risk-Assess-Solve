@@ -111,6 +111,19 @@ class BatchImportWorker(QThread):
             summary_path = os.path.join(self._out_dir, "raport_general.pdf")
             export_report_pdf(summary_path, summary_html)
 
+            # Model-evaluation charts alongside the reports (best-effort: a
+            # plotting failure must never sink an otherwise-complete batch).
+            self.progress.emit(total, total, "Se generează graficele metricilor…")
+            metrics_dir = None
+            try:
+                from ..model_report import save_metric_images
+                target, _created = save_metric_images(
+                    self._service.ensure_model(), self._out_dir
+                )
+                metrics_dir = str(target)
+            except Exception:
+                metrics_dir = None
+
             from ..metrics import RunMetrics
             run = RunMetrics.for_calls("import", call_metrics, label=self._source_name)
 
@@ -118,6 +131,7 @@ class BatchImportWorker(QThread):
                 {
                     "out_dir": self._out_dir, "count": total,
                     "summary_path": summary_path, "run": run,
+                    "metrics_dir": metrics_dir,
                 }
             )
         except Exception as exc:  # surfaced to the UI, never crashes the app
@@ -207,6 +221,9 @@ class MainWindow(QMainWindow):
         act_metrics = QAction("Metrici model…", self)
         act_metrics.triggered.connect(self._on_metrics)
         model_menu.addAction(act_metrics)
+        act_charts = QAction("Salvează graficele metricilor…", self)
+        act_charts.triggered.connect(self._on_save_metric_charts)
+        model_menu.addAction(act_charts)
 
         perf_menu = self.menuBar().addMenu("&Performanță")
         act_perf = QAction("Metrici pe rulare (latență / cost)…", self)
@@ -551,6 +568,20 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f"Raport PDF salvat: {path}")
         except Exception as exc:
             self._on_worker_error(f"{type(exc).__name__}: {exc}")
+            return
+
+        # Save the model's metric charts into a metrici_model/ folder next to the
+        # report, off the UI thread so the window stays responsive.
+        import os
+        report_dir = os.path.dirname(path) or "."
+        self._set_busy(True, "Se generează graficele metricilor…")
+
+        def work(directory=report_dir):
+            from ..model_report import save_metric_images
+            target, created = save_metric_images(self.service.ensure_model(), directory)
+            return str(target), len(created)
+
+        self._start_worker(work, self._on_export_charts_done)
 
     # --- batch import (Google-Forms .xlsx) ---------------------------------
     def _on_import_excel(self) -> None:
@@ -638,11 +669,18 @@ class MainWindow(QMainWindow):
         box = QMessageBox(self)
         box.setIcon(QMessageBox.Information)
         box.setWindowTitle("Import finalizat")
+        metrics_dir = payload.get("metrics_dir")
         text = (
             f"Au fost evaluați {count} elevi.\n\n"
             f"S-au generat {count} rapoarte individuale și un raport general "
             f"(raport_general.pdf) în:\n{out_dir}"
         )
+        if metrics_dir:
+            text += (
+                "\n\nGraficele de evaluare a modelului (matrice de confuzie, ROC, "
+                "precizie-recall, calibrare, SHAP, sumar) au fost salvate în:\n"
+                f"{metrics_dir}"
+            )
         if run is not None:
             priced = run.pricing_available
             cost = fmt_cost(run.total_cost if priced else None)
@@ -696,19 +734,92 @@ class MainWindow(QMainWindow):
         if not metrics:
             QMessageBox.information(self, "Metrici model", "Metrici indisponibile.")
             return
-        msg = (
-            f"Versiune: {self.service.model_version}\n"
-            f"Acuratețe: {metrics.get('accuracy', float('nan')):.3f}\n"
-            f"ROC AUC: {metrics.get('roc_auc', float('nan')):.3f}\n"
-            f"Echilibrare înainte SMOTE-NC: {metrics.get('balance_before')}\n"
-            f"Echilibrare după SMOTE-NC: {metrics.get('balance_after')}\n\n"
-            f"{metrics.get('report_text', '')}"
-        )
+
+        def num(key: str) -> str:
+            value = metrics.get(key)
+            try:
+                value = float(value)
+            except (TypeError, ValueError):
+                return "—"
+            return "—" if value != value else f"{value:.3f}"  # NaN-safe
+
+        def pm(mean_key: str, std_key: str) -> str:
+            m, s = metrics.get(mean_key), metrics.get(std_key)
+            try:
+                m, s = float(m), float(s)
+            except (TypeError, ValueError):
+                return "—"
+            return "—" if m != m else f"{m:.3f} ± {s:.3f}"
+
+        lines = [
+            f"Versiune: {self.service.model_version}",
+            "",
+            "— Metrici pe setul de test (echilibru real) —",
+            f"Acuratețe: {num('accuracy')}   Acuratețe echilibrată: {num('balanced_accuracy')}",
+            f"ROC-AUC: {num('roc_auc')}   PR-AUC: {num('pr_auc')}",
+            f"Precizie (abandon): {num('precision_dropout')}   "
+            f"Recall/sensibilitate: {num('recall_dropout')}",
+            f"Specificitate: {num('specificity')}   F1 (abandon): {num('f1_dropout')}",
+            f"G-mean: {num('g_mean')}   MCC: {num('mcc')}   Brier (↓): {num('brier')}",
+            f"Matrice confuzie [[TN, FP], [FN, TP]]: {metrics.get('confusion') or '—'}",
+        ]
+        if metrics.get("cv_folds"):
+            folds = int(metrics["cv_folds"])
+            lines += [
+                "",
+                f"— Validare încrucișată stratificată ({folds}-fold, SMOTE-NC în fold) —",
+                f"Acuratețe: {pm('cv_accuracy_mean', 'cv_accuracy_std')}   "
+                f"ROC-AUC: {pm('cv_roc_auc_mean', 'cv_roc_auc_std')}",
+                f"PR-AUC: {pm('cv_pr_auc_mean', 'cv_pr_auc_std')}   "
+                f"F1: {pm('cv_f1_mean', 'cv_f1_std')}",
+            ]
+        lines += [
+            "",
+            f"Echilibrare înainte SMOTE-NC: {metrics.get('balance_before')}",
+            f"Echilibrare după SMOTE-NC: {metrics.get('balance_after')}",
+            "",
+            metrics.get("report_text", ""),
+        ]
         box = QMessageBox(self)
         box.setWindowTitle("Metrici model")
-        box.setText(msg)
+        box.setText("\n".join(lines))
         box.setFont(QFont("Consolas", 9))
         box.exec()
+
+    def _on_save_metric_charts(self) -> None:
+        out_dir = QFileDialog.getExistingDirectory(
+            self, "Alege folderul unde se salvează graficele metricilor"
+        )
+        if not out_dir:
+            return
+        self._set_busy(True, "Se generează graficele metricilor…")
+
+        def work(directory=out_dir):
+            from ..model_report import save_metric_images
+            target, created = save_metric_images(self.service.ensure_model(), directory)
+            return str(target), len(created)
+
+        self._start_worker(work, self._on_metric_charts_done)
+
+    def _on_metric_charts_done(self, payload) -> None:
+        target, count = payload
+        self._set_busy(False, "Grafice metrici salvate.")
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Information)
+        box.setWindowTitle("Grafice metrici")
+        box.setText(f"S-au salvat {count} grafice cu metrici în:\n{target}")
+        open_btn = box.addButton("Deschide folderul", QMessageBox.AcceptRole)
+        box.addButton("Închide", QMessageBox.RejectRole)
+        box.exec()
+        if box.clickedButton() is open_btn:
+            self._open_folder(target)
+
+    def _on_export_charts_done(self, payload) -> None:
+        """Quiet completion for charts auto-saved next to a single PDF report."""
+        target, count = payload
+        self._set_busy(
+            False, f"Raport salvat + {count} grafice metrici în „{target}”."
+        )
 
     def _on_perf_metrics(self) -> None:
         from .metrics_dialog import MetricsDialog

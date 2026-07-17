@@ -20,6 +20,12 @@ openpyxl>=3.1
 # Genuine explainability (TreeExplainer over the real XGBoost model)
 shap>=0.44
 
+# Model-evaluation charts (confusion matrix, ROC, precision-recall, calibration,
+# SHAP summary) saved next to the generated reports. Pulled in transitively by
+# shap, but the app now renders these figures itself, so it is a direct runtime
+# dependency.
+matplotlib>=3.7
+
 # Desktop GUI (LGPL). Only the graphical layer needs this; the ML/DB core does not.
 PySide6>=6.6,<6.9
 
