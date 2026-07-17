@@ -145,7 +145,7 @@ def build_runs_html(runs: list[metrics.RunMetrics]) -> str:
         'Latența, tokenii (raportați de furnizor) și costul derivat pentru fiecare '
         'apel de generare a planului. Costul este calculat din tokeni cu tabelul '
         f'de prețuri din {escape(metrics.PRICING_AS_OF)} — verifică ratele pentru '
-        'modelul și nivelul exact înainte de a le cita într-o lucrare.</p>'
+        'modelul.</p>'
     )
 
     if not runs:

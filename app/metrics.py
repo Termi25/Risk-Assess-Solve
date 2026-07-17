@@ -1,28 +1,3 @@
-"""Runtime performance metrics for the LLM plan-generation step.
-
-This captures, **per API call**, the wall-clock latency, the *exact* token usage
-reported by the provider, and the derived USD cost, then groups calls into
-*runs* — one single-student generation, or one imported-workbook batch — so the
-app can report per-run totals: number of reports, their latencies, the total
-cost, and the cost per report.
-
-Design notes (these matter for using the numbers in a scientific paper):
-
-* **Tokens are measured, not estimated.** The counts come straight from each
-  provider's own usage accounting (Gemini ``usage_metadata`` /
-  Anthropic ``usage``), so they are reproducible for a given model version.
-* **Cost is *derived*, never intrinsic.** A dollar figure only means something
-  when pinned to a price list *and* a date, because provider pricing changes.
-  Cost is therefore computed from the measured tokens via :data:`MODEL_PRICING`,
-  a clearly dated, editable snapshot (:data:`PRICING_AS_OF`). Verify the rates
-  for your exact model/version and context tier before quoting them.
-* **Reasoning tokens are billed as output.** Gemini "thinking" tokens and any
-  Anthropic reasoning are counted at the output rate, so ``billed_output_tokens``
-  = visible output + thinking.
-* Runs are appended to a JSONL log in the user-data dir so measurements can be
-  accumulated across sessions and exported to CSV for analysis.
-"""
-
 from __future__ import annotations
 
 import csv
