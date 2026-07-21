@@ -3,7 +3,7 @@
 
 Produces a single Windows executable (dist/RiskSolvingApp.exe) that bundles:
   * the PySide6 GUI,
-  * the ML stack (xgboost + shap + scikit-learn + imbalanced-learn),
+  * the ML stack (xgboost + shap + lime + scikit-learn + imbalanced-learn),
   * the optional Anthropic SDK,
   * the pre-trained model artifact (app/artifacts/*.json).
 
@@ -56,6 +56,12 @@ hiddenimports += [
     "win32ctypes.core.ctypes",
 ]
 
+# lime is imported lazily inside lime_explainer, so the import graph never sees
+# it — name the tabular module explicitly. Only `lime.lime_image` needs
+# scikit-image (and its imageio/networkx/tifffile chain); this app uses the
+# tabular explainer only, so those are excluded below to keep the exe small.
+hiddenimports += ["lime", "lime.lime_tabular", "lime.discretize"]
+
 a = Analysis(
     ["run.py"],
     pathex=[],
@@ -65,7 +71,13 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=["tkinter", "pytest", "PyInstaller"],
+    excludes=[
+        "tkinter", "pytest", "PyInstaller",
+        # Pulled in transitively by lime for its image explainer, which this
+        # app never imports. Verified: lime/__init__.py is empty and
+        # lime.lime_tabular does not touch skimage.
+        "skimage", "imageio", "networkx", "tifffile", "lime.lime_image",
+    ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,

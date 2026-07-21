@@ -94,7 +94,10 @@ def test_local_plan_uses_questionnaire_context(trained_model, monkeypatch):
     evaluation = evaluate(model, HIGH_RISK)
     summary = anonymized_summary(evaluation, HIGH_RISK)
     assert "Context chestionar (anonimizat):" in summary
-    assert "Situația familială" in summary
+    # The cloud payload carries family structure only as a coarse bucket; the
+    # precise category stays local. See tests/test_deidentification.py.
+    assert "Structura familiei" in summary
+    assert "Situația familială" not in summary
     assert "Nume" not in summary
 
     plan, source = generate_action_plan(

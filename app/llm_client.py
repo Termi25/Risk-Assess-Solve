@@ -5,6 +5,14 @@ This is the only network-dependent component. Per the README's privacy model,
 score, the risk band, the sub-scores, and the SHAP feature attributions. No
 student name, no free-text observation, no identifiers ever leave the machine.
 
+Direct identifiers were never in the payload; this module additionally reduces
+the *quasi-identifiers*, since age + sex + family situation + both parents'
+education could jointly re-identify a student in a small school even with no
+name attached. Concretely, the cloud context drops the exact age and sex,
+coarsens family structure to three buckets, and merges the two parental
+education levels into one numeric index — collapsing 36 combinations to one
+scalar. The local plan keeps the full detail; it never leaves the machine.
+
 Behaviour:
   * If the active provider's SDK is installed *and* an API key is configured,
     the plan is written in the cloud by Claude (Anthropic) or Gemini (Google) —
@@ -24,7 +32,8 @@ SYSTEM_PROMPT = (
     "Pe baza unui scor de risc calculat local și a unei explicații xAI (SHAP), "
     "redactezi un plan de intervenție numit «Proiectul Podul», concret și "
     "acționabil pentru un cadru didactic. Primești și un rezumat structurat al "
-    "chestionarului, dar nu primești nume, școală sau data nașterii exacte. "
+    "chestionarului, dar nu primești nume, școală, data nașterii, vârsta sau "
+    "sexul elevului; situația familială îți este dată doar la nivel general. "
     "NU inventezi date lipsă — lucrezi cu scorul și factorii numerici deja calculați. "
     "Structura obligatorie a răspunsului (în limba română, fără preambul):\n"
     "1. Rezumatul riscului (2–3 propoziții).\n"
@@ -91,13 +100,14 @@ _INTERVENTIONS: dict[str, str] = {
 }
 
 
+# Context sent to the cloud, in order. Deliberately excludes the quasi-
+# identifiers: exact age and sex are dropped entirely, family situation is
+# coarsened, and the two parental-education levels are merged into a single
+# numeric index (see _deidentified_context_lines). Residential environment is
+# kept — it has only two values, so it adds little identifiability, and it
+# drives a real intervention (transport / digital access for commuting students).
 _SAFE_CONTEXT_KEYS = (
-    ("Age_Years", "Vârsta aproximativă"),
-    ("Sex", "Sex"),
     ("Mediu_Rezidential", "Mediul de proveniență"),
-    ("Situatie_Familiala", "Situația familială"),
-    ("Educatie_Mama", "Educația mamei"),
-    ("Educatie_Tata", "Educația tatălui"),
     ("Absente_Nemotivate_Zilele_1_13", "Absențe nemotivate"),
     ("Absente_Motivate_3_Luni", "Absențe motivate"),
     ("Participare_Extrascolara", "Participare extrașcolară"),
@@ -110,6 +120,28 @@ _SAFE_CONTEXT_KEYS = (
     ("Scoala_Ajuta_Obiective", "Școala ajută obiectivele"),
 )
 
+# The full-detail set used by the *local* plan, which never leaves the machine
+# and is read by a teacher who already knows the student.
+_LOCAL_CONTEXT_KEYS = (
+    ("Age_Years", "Vârsta aproximativă"),
+    ("Sex", "Sex"),
+    ("Situatie_Familiala", "Situația familială"),
+    ("Educatie_Mama", "Educația mamei"),
+    ("Educatie_Tata", "Educația tatălui"),
+) + _SAFE_CONTEXT_KEYS
+
+# Family structure coarsened from 4 questionnaire categories to 3 buckets. The
+# distinction that survives is the one that changes the intervention: involving
+# a legal guardian is a different action from involving both parents.
+_FAMILY_BUCKETS = {
+    "Ambii părinți": "ambii părinți",
+    "Monoparental": "un singur adult",
+    "Părinți divortați/separați": "un singur adult",
+    "Tutore / plasament": "tutore / altă situație",
+    "Altă situație": "tutore / altă situație",
+}
+_FAMILY_BUCKET_DEFAULT = "tutore / altă situație"
+
 
 def _trim_text(value: object, limit: int = 160) -> str:
     text = str(value).strip()
@@ -118,30 +150,88 @@ def _trim_text(value: object, limit: int = 160) -> str:
     return text[: limit - 1].rstrip() + "…"
 
 
-def _questionnaire_context_lines(questionnaire_answers: dict | None) -> list[str]:
+def _parental_education_index(features: dict) -> float | None:
+    """Both parents' education levels merged into one risk scalar.
+
+    Reuses the exact coefficients the scoring model uses internally, so the
+    number the LLM sees is the same quantity that drove the prediction. Sending
+    36 combinations of two 6-level categoricals is a strong quasi-identifier;
+    one averaged scalar is not. Nothing actionable is lost because mother's and
+    father's education already map to *identical* intervention text below.
+    """
+    from .scoring_engine import _EDUCATION_RISK
+
+    levels = [features.get("Educatie_Mama"), features.get("Educatie_Tata")]
+    scores = [
+        _EDUCATION_RISK.get(str(level), 0.5)
+        for level in levels
+        if level not in (None, "")
+    ]
+    if not scores:
+        return None
+    return round(sum(scores) / len(scores), 2)
+
+
+def _format_context_value(key: str, label: str, value: object) -> str:
+    if key == "Age_Years":
+        return f"  - {label}: {int(round(float(value)))} ani"
+    if key == "Medie_Modul_Anterior":
+        return f"  - {label}: {float(value):.1f}"
+    if key == "Studentship_Score":
+        return f"  - {label}: {float(value):.1f} / 10"
+    codes = config.CATEGORY_CODES.get(key)
+    if codes is not None and str(value) not in codes:
+        # An unanswered categorical falls back to ``Feature.default`` (0.0), so
+        # it would otherwise reach the model as a bare "0.0". Decoding that back
+        # to the first category would assert an answer the teacher never gave;
+        # saying so explicitly lets the plan account for the missing input.
+        return f"  - {label}: nespecificat"
+    return f"  - {label}: {value}"
+
+
+def _questionnaire_context_lines(
+    questionnaire_answers: dict | None, *, deidentified: bool = True
+) -> list[str]:
+    """Structured questionnaire context.
+
+    ``deidentified=True`` (the default, and what the cloud path uses) drops the
+    exact age and sex, coarsens family structure to three buckets, and replaces
+    the two parental-education levels with a single numeric index. The default
+    is the safe one on purpose: a new caller that forgets the flag gets the
+    de-identified payload rather than leaking. ``deidentified=False`` is for the
+    local plan, which never leaves the machine.
+    """
     if not questionnaire_answers:
         return []
     from .scoring_engine import compose_model_features
 
     features = compose_model_features(questionnaire_answers)
+    keys = _SAFE_CONTEXT_KEYS if deidentified else _LOCAL_CONTEXT_KEYS
+
     lines: list[str] = []
-    for key, label in _SAFE_CONTEXT_KEYS:
+    if deidentified:
+        family = features.get("Situatie_Familiala")
+        if family not in (None, ""):
+            bucket = _FAMILY_BUCKETS.get(str(family), _FAMILY_BUCKET_DEFAULT)
+            lines.append(f"  - Structura familiei: {bucket}")
+        index = _parental_education_index(features)
+        if index is not None:
+            lines.append(
+                f"  - Indice educație parentală: {index:+.2f} "
+                "(scală -0.30 … +0.50; valori mari = nivel educațional scăzut, "
+                "risc mai mare)"
+            )
+
+    for key, label in keys:
         value = features.get(key)
         if value in (None, ""):
             continue
-        if key == "Age_Years":
-            lines.append(f"  - {label}: {int(round(float(value)))} ani")
-        elif key == "Medie_Modul_Anterior":
-            lines.append(f"  - {label}: {float(value):.1f}")
-        elif key == "Studentship_Score":
-            lines.append(f"  - {label}: {float(value):.1f} / 10")
-        else:
-            lines.append(f"  - {label}: {value}")
+        lines.append(_format_context_value(key, label, value))
     return lines
 
 
 def _local_context_lines(questionnaire_answers: dict | None, observation_text: str | None) -> list[str]:
-    lines = _questionnaire_context_lines(questionnaire_answers)
+    lines = _questionnaire_context_lines(questionnaire_answers, deidentified=False)
     if questionnaire_answers:
         for key, label in (
             ("family_situation_other", "Situație familială - detalii"),

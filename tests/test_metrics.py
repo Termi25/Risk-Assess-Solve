@@ -171,3 +171,29 @@ def test_generate_action_plan_records_local_metric(trained_model, monkeypatch):
     assert calls[0].source == "local"
     assert calls[0].ok is False
     assert calls[0].cost == 0.0
+
+
+# --- de-identification of the run label ------------------------------------
+def test_single_run_label_carries_the_band_not_a_name():
+    """The label reaches the exported research CSV, so it must not identify."""
+    label = metrics.single_run_label("Critic")
+    assert "Critic" in label
+    assert "Evaluare individuală" in label
+
+
+def test_single_run_label_handles_a_missing_band():
+    assert metrics.single_run_label("") == "Evaluare individuală"
+    assert metrics.single_run_label("   ") == "Evaluare individuală"
+
+
+def test_exported_csv_contains_no_student_name(tmp_path):
+    """Regression guard: a student name must never reach the metrics export."""
+    run = RunMetrics.for_calls(
+        "single", [_cloud_call()], label=metrics.single_run_label("Ridicat")
+    )
+    path = tmp_path / "runs.csv"
+    metrics.export_calls_csv(str(path), [run])
+    content = path.read_text(encoding="utf-8-sig")
+    assert "Ridicat" in content
+    # The name that the old call site would have written.
+    assert "Popescu" not in content

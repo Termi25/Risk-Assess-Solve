@@ -1,13 +1,17 @@
-"""Render an assessment result as Qt-rich-text HTML (score + SHAP + NLP).
+"""Render an assessment result as Qt-rich-text HTML (score + SHAP + LIME + NLP).
 
 Two consumers share the same building blocks:
 
-* the on-screen result view (``render_result_html``) — sections 1 + 2 only;
+* the on-screen result view (``render_result_html``) — sections 1–3 only;
 * the exported PDF (``build_report_html`` + ``export_report_pdf``) — a polished
-  three-page report:
+  four-page report:
       Page 1  Datele introduse        (identity + full questionnaire)
-      Page 2  Evaluarea riscului      (risk profile + xAI explanation)
-      Page 3  Planul de recomandare   (intervention plan + success indicators)
+      Page 2  Evaluarea riscului      (risk profile + global SHAP explanation)
+      Page 3  Profil individual       (LIME local rule list + its fidelity)
+      Page 4  Planul de recomandare   (intervention plan + success indicators)
+
+  Page 3 is omitted when ``lime`` is unavailable, leaving the original
+  three-page layout intact.
 
 Everything is expressed with the HTML/CSS subset ``QTextDocument`` understands
 (tables with fixed widths and background-coloured cells, inline font styling,
@@ -284,6 +288,75 @@ def _subscores_html(ev: RiskEvaluation, compact: bool = False) -> str:
     return "".join(parts)
 
 
+def _fidelity_color(r2: float) -> str:
+    """Green/amber/red by how well the local surrogate fits this student."""
+    if r2 >= 0.70:
+        return _NEG_COLOR
+    if r2 >= 0.40:
+        return "#e67e22"
+    return _POS_COLOR
+
+
+def _lime_html(result: AssessmentResult) -> str:
+    """Section 3 — the individual risk profile fitted by LIME.
+
+    Deliberately phrased as rules rather than percentages: unlike the SHAP block,
+    these weights are local surrogate coefficients and do not add up to the
+    model's probability, so showing them as "pp of the score" would misread them.
+    """
+    lime = result.lime
+    if lime is None or not lime.conditions:
+        return ""
+
+    ev = result.evaluation
+    parts: list[str] = []
+    parts.append(_section_title("Profil individual de risc (LIME)"))
+    parts.append(
+        '<p style="color:#555; font-size:9pt;">Regulile care descriu situația '
+        "<i>acestui</i> elev, așa cum le-a identificat un model local aproximativ "
+        "(LIME), antrenat în jurul cazului său. Spre deosebire de analiza SHAP, "
+        "ponderile de mai jos <b>nu se adună</b> la scorul final — ele arată ce "
+        "anume diferențiază local acest elev, nu din ce se compune procentul.</p>"
+    )
+
+    conditions = lime.top_conditions(len(lime.conditions))
+    max_w = max((abs(c.weight) for c in conditions), default=1.0) or 1.0
+    parts.append('<table width="100%" cellpadding="3">')
+    for c in conditions:
+        color = _POS_COLOR if c.weight >= 0 else _NEG_COLOR
+        width = abs(c.weight) / max_w * _MAX_BAR_PX
+        sign = "+" if c.weight >= 0 else ""
+        parts.append(
+            "<tr>"
+            f'<td width="250" style="font-size:9.5pt;">{escape(c.condition)}<br>'
+            f'<span style="color:#888; font-size:7.5pt;">{escape(c.direction)}</span></td>'
+            + _bar_cell(width, color, _MAX_BAR_PX)
+            + f'<td width="70" align="right" style="font-size:9.5pt;">'
+            f'<b><span style="color:{color};">{sign}{c.influence:.1f}</span></b></td>'
+            "</tr>"
+        )
+    parts.append("</table>")
+
+    # Fidelity panel — a weak local fit is shown, not hidden.
+    fid_color = _fidelity_color(lime.fidelity_r2)
+    parts.append(_spacer(8))
+    parts.append(
+        f'<table width="100%" cellspacing="0" cellpadding="7" bgcolor="{_PANEL}">'
+        "<tr><td>"
+        f'<span style="font-size:9pt;"><b>Fidelitatea explicației locale: '
+        f'<span style="color:{fid_color};">{escape(lime.fidelity_label)}</span></b> '
+        f"(R² = {lime.fidelity_r2:.2f} pe {lime.num_samples} perturbări)</span><br>"
+        f'<span style="color:#555; font-size:8.5pt;">Modelul local aproximează '
+        f"probabilitatea la <b>{lime.local_prediction:.3f}</b>, față de "
+        f"<b>{ev.probability:.3f}</b> cât indică modelul real "
+        f"(diferență: {lime.local_gap:.3f}). Cu cât R² este mai mic și diferența "
+        "mai mare, cu atât regulile de mai sus trebuie citite mai prudent — "
+        "decizia rămâne a cadrului didactic.</span>"
+        "</td></tr></table>"
+    )
+    return "".join(parts)
+
+
 def _two_column_html(left: str, right: str) -> str:
     """Place two blocks side by side (used to fit SHAP + sub-scores on one row)."""
     return (
@@ -340,10 +413,11 @@ def _xai_html(result: AssessmentResult, two_column: bool = False) -> str:
 
 
 def render_result_html(result: AssessmentResult) -> str:
-    """Sections 1 + 2 — the on-screen result view and the report's core."""
+    """Sections 1–3 — the on-screen result view and the report's core."""
     parts: list[str] = ['<div style="font-family: Segoe UI, Arial, sans-serif;">']
     parts.append(_risk_profile_html(result.evaluation))
     parts.append(_xai_html(result))
+    parts.append(_lime_html(result))
     parts.append("</div>")
     return "".join(parts)
 
@@ -515,7 +589,18 @@ def build_report_html(case: StudentCase, result: AssessmentResult, plan_text: st
     parts.append(_spacer(6))
     parts.append(_xai_html(result, two_column=True))
 
-    # --- Page 3 — Planul de recomandare ------------------------------------
+    # --- Page 3 — Profil individual de risc (LIME) -------------------------
+    # Its own sheet: page 2 is already full, and the local rule list is the part
+    # a teacher reads directly, so it should not be squeezed into a margin.
+    lime_block = _lime_html(result)
+    if lime_block:
+        parts.append(_page_break())
+        parts.append(_page_header_html("Profil individual de risc"))
+        parts.append(_spacer(12))
+        parts.append(_spacer(4))
+        parts.append(lime_block)
+
+    # --- Page 4 — Planul de recomandare ------------------------------------
     parts.append(_page_break())
     parts.append(_page_header_html("Planul de recomandare"))
     parts.append(_spacer(12))

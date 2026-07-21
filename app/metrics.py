@@ -99,6 +99,21 @@ class CallMetric:
         )
 
 
+def single_run_label(risk_band: str) -> str:
+    """Non-identifying label for a single-student run.
+
+    The metrics store measures *the LLM call* — latency, tokens, cost — not the
+    student, so it has no legitimate need for a name. This log is mirrored to
+    ``metrics_runs.jsonl`` and exported by :func:`export_calls_csv`, and that CSV
+    is meant to be shared as research data; a name in the ``label`` column would
+    travel with it. The risk band is used instead: it carries no identity but
+    still lets cost and latency be broken down by tier, which is the analysis
+    the label is actually for.
+    """
+    band = (risk_band or "").strip()
+    return f"Evaluare individuală · {band}" if band else "Evaluare individuală"
+
+
 @dataclass
 class RunMetrics:
     """All the calls made during one run, plus the run's identity."""
@@ -110,7 +125,10 @@ class RunMetrics:
     provider: str = ""
     model: str = ""
     pricing_as_of: str = PRICING_AS_OF
-    label: str = ""                        # student name / source workbook name
+    # Free-text run descriptor. MUST NOT contain personal data — it is written to
+    # the JSONL log and to the exported research CSV. Use ``single_run_label()``
+    # for single runs; import runs carry the source workbook name.
+    label: str = ""
     calls: list[CallMetric] = field(default_factory=list)
 
     @classmethod

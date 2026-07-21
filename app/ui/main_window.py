@@ -519,10 +519,12 @@ class MainWindow(QMainWindow):
 
     def _generate_plan_measured(self, evaluation, case):
         """Generate one plan and record it as a single-report performance run."""
-        from ..metrics import RunMetrics, get_store
+        from ..metrics import RunMetrics, get_store, single_run_label
         calls: list = []
         text, source = self.service.generate_plan(evaluation, case, metric_out=calls)
-        label = case.display_name() if case else ""
+        # Deliberately not the student's name: this label reaches the exported
+        # research CSV. See metrics.single_run_label.
+        label = single_run_label(evaluation.risk_band)
         get_store().add(RunMetrics.for_calls("single", calls, label=label))
         return text, source
 

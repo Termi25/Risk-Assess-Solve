@@ -1,6 +1,6 @@
-"""Assessment orchestration: NLP -> scoring -> SHAP -> (optional) plan -> save.
+"""Assessment orchestration: NLP -> scoring -> SHAP -> LIME -> (optional) plan -> save.
 
-Keeps the GUI thin. All the heavy imports (xgboost, shap) live behind this
+Keeps the GUI thin. All the heavy imports (xgboost, shap, lime) live behind this
 service so the window can construct instantly and load the model lazily.
 """
 
@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
-from .models import RiskEvaluation, StudentCase
+from .models import LimeExplanation, RiskEvaluation, StudentCase
 from .nlp_engine import NlpResult, analyze
 
 
@@ -17,6 +17,9 @@ from .nlp_engine import NlpResult, analyze
 class AssessmentResult:
     nlp: NlpResult
     evaluation: RiskEvaluation
+    # Local LIME profile for this student. ``None`` when ``lime`` is not
+    # installed or the surrogate failed — the report then omits that section.
+    lime: Optional[LimeExplanation] = None
 
 
 class AssessmentService:
@@ -46,12 +49,26 @@ class AssessmentService:
     def model_metrics(self) -> Optional[dict]:
         return self.ensure_model().meta.metrics
 
-    def assess(self, case: StudentCase) -> AssessmentResult:
+    def assess(self, case: StudentCase, with_lime: bool = True) -> AssessmentResult:
+        """Run the full local pipeline for one case.
+
+        ``with_lime`` computes the individual LIME risk profile alongside the
+        SHAP decomposition (~10 ms). It is separable because the two answer
+        different questions — see :mod:`app.lime_explainer`.
+        """
         from .explainability import evaluate_case
         model = self.ensure_model()
         nlp = analyze(case.observation_text)
         evaluation = evaluate_case(model, case, nlp)
-        return AssessmentResult(nlp=nlp, evaluation=evaluation)
+
+        lime_profile = None
+        if with_lime:
+            from .lime_explainer import explain_case
+            features = dict(case.features)
+            features["Stres_Emotional_NLP"] = round(nlp.stress_score, 3)
+            lime_profile = explain_case(model, features)
+
+        return AssessmentResult(nlp=nlp, evaluation=evaluation, lime=lime_profile)
 
     def assess_many(
         self,

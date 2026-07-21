@@ -66,6 +66,65 @@ class SubScore:
 
 
 @dataclass
+class LimeCondition:
+    """One rule from the LIME local surrogate, e.g. "Media modulului ≤ 6.20".
+
+    ``weight`` is the surrogate's coefficient for that rule, not a share of the
+    model's probability — see :mod:`app.lime_explainer` for why the two must not
+    be read the same way as :class:`FeatureAttribution`.
+    """
+
+    feature_key: str
+    label: str                  # human-readable feature name
+    condition: str              # the rule as LIME phrased it, feature name humanised
+    weight: float               # signed local coefficient (+ raises risk)
+
+    @property
+    def direction(self) -> str:
+        return "crește riscul" if self.weight >= 0 else "reduce riscul"
+
+    @property
+    def influence(self) -> float:
+        """Weight on a 0–100 display scale (relative, *not* additive)."""
+        return round(self.weight * 100.0, 1)
+
+
+@dataclass
+class LimeExplanation:
+    """The individual student's local risk profile, as fitted by LIME.
+
+    Carries its own fidelity so a poor local fit is visible instead of implied:
+    ``fidelity_r2`` is the surrogate's R² over the perturbed neighbourhood, and
+    ``local_prediction`` is what the surrogate predicts — compare it against
+    ``model_probability`` (the real model output) to judge whether the rule list
+    can be trusted for this particular student.
+    """
+
+    conditions: list[LimeCondition] = field(default_factory=list)
+    intercept: float = 0.0
+    local_prediction: float = 0.0
+    model_probability: float = 0.0
+    fidelity_r2: float = 0.0
+    num_samples: int = 0
+
+    @property
+    def local_gap(self) -> float:
+        """Absolute distance between the surrogate and the real model output."""
+        return abs(self.local_prediction - self.model_probability)
+
+    @property
+    def fidelity_label(self) -> str:
+        if self.fidelity_r2 >= 0.70:
+            return "bună"
+        if self.fidelity_r2 >= 0.40:
+            return "moderată"
+        return "slabă"
+
+    def top_conditions(self, n: int = 6) -> list["LimeCondition"]:
+        return sorted(self.conditions, key=lambda c: abs(c.weight), reverse=True)[:n]
+
+
+@dataclass
 class RiskEvaluation:
     """Computed, explainable output for one student case."""
 

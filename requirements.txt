@@ -17,8 +17,21 @@ imbalanced-learn>=0.12        # provides SMOTE-NC
 # import path needs this; the manual single-student flow does not.
 openpyxl>=3.1
 
-# Genuine explainability (TreeExplainer over the real XGBoost model)
+# Genuine explainability (TreeExplainer over the real XGBoost model).
+# SHAP covers the *global* feature importance and the additive per-case
+# decomposition that feeds the domain sub-scores and the anonymised LLM payload.
 shap>=0.44
+
+# Local explainability: the *individual* student's risk profile, as a readable
+# rule list on its own report page. Complements SHAP rather than replacing it —
+# LIME weights are local surrogate coefficients and are NOT additive, so they
+# never feed the sub-scores. Imported lazily; the app drops the section and
+# keeps working when it is absent.
+#
+# NOTE: lime pulls scikit-image/imageio/networkx transitively for its *image*
+# explainer, which this app never uses. They are excluded in RiskSolvingApp.spec
+# to keep the packaged exe from growing by ~100 MB.
+lime>=0.2
 
 # Model-evaluation charts (confusion matrix, ROC, precision-recall, calibration,
 # SHAP summary) saved next to the generated reports. Pulled in transitively by
