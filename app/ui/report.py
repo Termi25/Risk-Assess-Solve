@@ -4,14 +4,15 @@ Two consumers share the same building blocks:
 
 * the on-screen result view (``render_result_html``) — sections 1–3 only;
 * the exported PDF (``build_report_html`` + ``export_report_pdf``) — a polished
-  four-page report:
+  three-page report:
       Page 1  Datele introduse        (identity + full questionnaire)
-      Page 2  Evaluarea riscului      (risk profile + global SHAP explanation)
-      Page 3  Profil individual       (LIME local rule list + its fidelity)
-      Page 4  Planul de recomandare   (intervention plan + success indicators)
+      Page 2  Evaluarea riscului      (risk profile, SHAP, sub-scores, then the
+                                       LIME rule list + its fidelity, then NLP)
+      Page 3  Planul de recomandare   (intervention plan + success indicators)
 
-  Page 3 is omitted when ``lime`` is unavailable, leaving the original
-  three-page layout intact.
+  The LIME block is simply absent when ``lime`` is unavailable. Page 2 carries
+  the most content and flows onto a continuation sheet when the rule list is
+  long; only the explicit breaks above start a new headed page.
 
 Everything is expressed with the HTML/CSS subset ``QTextDocument`` understands
 (tables with fixed widths and background-coloured cells, inline font styling,
@@ -23,6 +24,8 @@ figure "xAI Analysis and Personalized Intervention Plan".
 from __future__ import annotations
 
 import re
+import textwrap
+import unicodedata
 from datetime import datetime
 from html import escape
 
@@ -338,11 +341,15 @@ def _lime_html(result: AssessmentResult) -> str:
     parts.append("</table>")
 
     # Fidelity panel — a weak local fit is shown, not hidden.
+    # The panel colour goes on the ``<td>``, not the ``<table>``: QTextBrowser
+    # (the on-screen view) ignores a table-level ``bgcolor`` and renders the
+    # panel white, while the PDF writer honours it — so the two views disagreed.
+    # Cell-level background is respected by both, as in ``_meta_strip_html``.
     fid_color = _fidelity_color(lime.fidelity_r2)
     parts.append(_spacer(8))
     parts.append(
-        f'<table width="100%" cellspacing="0" cellpadding="7" bgcolor="{_PANEL}">'
-        "<tr><td>"
+        f'<table width="100%" cellspacing="0" cellpadding="7">'
+        f'<tr><td bgcolor="{_PANEL}">'
         f'<span style="font-size:9pt;"><b>Fidelitatea explicației locale: '
         f'<span style="color:{fid_color};">{escape(lime.fidelity_label)}</span></b> '
         f"(R² = {lime.fidelity_r2:.2f} pe {lime.num_samples} perturbări)</span><br>"
@@ -382,7 +389,15 @@ def _nlp_html(result: AssessmentResult) -> str:
     )
 
 
-def _xai_html(result: AssessmentResult, two_column: bool = False) -> str:
+def _xai_html(
+    result: AssessmentResult, two_column: bool = False, lime_block: str = ""
+) -> str:
+    """The xAI section: why-bullets, SHAP, sub-scores, then NLP.
+
+    ``lime_block`` (the report path) is inserted directly under the sub-scores,
+    keeping the local rule list next to the domain weights it refines. The
+    on-screen view leaves it empty and appends LIME after the whole section.
+    """
     ev = result.evaluation
     parts: list[str] = []
     parts.append(_section_title("Explicație xAI (de ce acest nivel de risc)"))
@@ -395,7 +410,7 @@ def _xai_html(result: AssessmentResult, two_column: bool = False) -> str:
         parts.append(f'<li style="font-size:10pt;">{bullet}</li>')
     parts.append("</ul>")
     if two_column:
-        # SHAP + sub-scores side by side so page 2 stays on a single sheet.
+        # SHAP + sub-scores side by side to keep the page compact.
         parts.append(
             _two_column_html(_shap_html(ev, compact=True),
                              _subscores_html(ev, compact=True))
@@ -403,6 +418,9 @@ def _xai_html(result: AssessmentResult, two_column: bool = False) -> str:
     else:
         parts.append(_shap_html(ev))
         parts.append(_subscores_html(ev))
+    if lime_block:
+        parts.append(_spacer(10))
+        parts.append(lime_block)
     parts.append(_nlp_html(result))
     parts.append(
         f'<p style="color:#888; font-size:8pt;">Probabilitate model: '
@@ -532,22 +550,87 @@ def _plan_html(plan_text: str, source: str) -> str:
 
 
 # --- Section 4: Success indicators -----------------------------------------
-def _success_indicators_html(ev: RiskEvaluation) -> str:
-    current = max(0.0, min(10.0, ev.studentship_score))
-    target = min(10.0, round(current + 3.0))
+# Both plan sources are required to end with the same section — item 4 of
+# ``llm_client.SYSTEM_PROMPT`` for the cloud plan, the "4. Indicatori de succes"
+# block for the local template. The report also renders that section on its own,
+# so it has to be lifted out of the plan body or it prints twice.
+_SUCCESS_HEADING_RE = re.compile(
+    r"^\s*(?:#{1,6}\s*)?(?:\*\*)?\s*\d*\.?\s*indicatori de succes"
+)
+# What terminates the block: a markdown heading, a horizontal rule, or the local
+# template's "— Bază de calcul (date anonimizate) —" footer.
+_BLOCK_END_RE = re.compile(r"^\s*(?:#{1,6}\s|[—–]\s|-{3,}|={3,})")
+
+
+def _deaccent(text: str) -> str:
+    nfkd = unicodedata.normalize("NFKD", text.lower())
+    return "".join(ch for ch in nfkd if not unicodedata.combining(ch))
+
+
+def _split_success_indicators(plan_text: str) -> tuple[str, str]:
+    """Split the plan into (body without indicators, indicators section).
+
+    The heading must *start* the line — a passing mention of "indicatori de
+    succes" inside the risk summary must not tear the plan in half.
+    An empty second element means the plan had no such section, and the generic
+    checklist below applies instead.
+    """
+    text = (plan_text or "").strip()
+    if not text:
+        return "", ""
+    lines = text.splitlines()
+
+    start = next(
+        (i for i, line in enumerate(lines)
+         if _SUCCESS_HEADING_RE.match(_deaccent(line))),
+        None,
+    )
+    if start is None:
+        return text, ""
+
+    end = next(
+        (j for j in range(start + 1, len(lines)) if _BLOCK_END_RE.match(lines[j])),
+        len(lines),
+    )
+    # Dedent as a block: the local template indents its bullets by three spaces,
+    # and stripping only the first line would leave item 1 at column 0 with the
+    # rest indented — which the Markdown parser may read as two separate lists.
+    section = textwrap.dedent("\n".join(lines[start + 1:end])).strip()
+    remaining = "\n".join(lines[:start] + lines[end:]).strip()
+    # A heading with nothing under it is not worth relocating.
+    return (remaining, section) if section else (text, "")
+
+
+def _success_indicators_html(ev: RiskEvaluation, section_md: str = "") -> str:
+    """The dedicated success-indicators panel.
+
+    ``section_md`` is the block lifted out of the plan; when the plan supplied
+    one, it is shown here *instead of* the generic checklist, so the tailored
+    indicators survive de-duplication rather than being discarded.
+    """
     parts: list[str] = []
     parts.append(_section_title("Indicatori de succes (4 săptămâni)"))
+    if section_md.strip():
+        body = _markdown_to_html(section_md)
+    else:
+        current = max(0.0, min(10.0, ev.studentship_score))
+        target = min(10.0, round(current + 3.0))
+        body = (
+            '<ul style="margin:0; font-size:10pt;">'
+            "<li>Absențe: sub 2 absențe nemotivate pe săptămână.</li>"
+            f"<li>Implicare: creșterea scorului Studentship de la <b>{current:g}/10</b> "
+            f"la <b>{target:g}/10</b>.</li>"
+            "<li>Participare: cel puțin un moment / o activitate școlară activă pe săptămână.</li>"
+            "<li>Atitudine: trecere spre „neutru / pozitiv” față de școală.</li>"
+            "<li>Reevaluarea scorului de risc la finalul celor 4 săptămâni.</li>"
+            "</ul>"
+        )
     parts.append(
-        '<table width="100%" cellpadding="10" cellspacing="0" bgcolor="#eef7f0" '
-        'border="1" style="border-color:#bfe0c8;"><tr><td>'
-        '<ul style="margin:0; font-size:10pt;">'
-        "<li>Absențe: sub 2 absențe nemotivate pe săptămână.</li>"
-        f"<li>Implicare: creșterea scorului Studentship de la <b>{current:g}/10</b> "
-        f"la <b>{target:g}/10</b>.</li>"
-        "<li>Participare: cel puțin un moment / o activitate școlară activă pe săptămână.</li>"
-        "<li>Atitudine: trecere spre „neutru / pozitiv” față de școală.</li>"
-        "<li>Reevaluarea scorului de risc la finalul celor 4 săptămâni.</li>"
-        "</ul></td></tr></table>"
+        '<table width="100%" cellpadding="10" cellspacing="0" '
+        'border="1" style="border-color:#bfe0c8;"><tr>'
+        '<td bgcolor="#eef7f0">'
+        f'<div style="font-family: Segoe UI, Arial, sans-serif; font-size:10pt;">'
+        f"{body}</div></td></tr></table>"
     )
     return "".join(parts)
 
@@ -557,14 +640,18 @@ def _page_break() -> str:
 
 
 def build_report_html(case: StudentCase, result: AssessmentResult, plan_text: str) -> str:
-    """Assemble the full three-page report as HTML.
+    """Assemble the full report as HTML.
 
-    Each page is a block that starts with the running header band; pages 2 and 3
-    are preceded by ``page-break-before`` so ``QTextDocument`` paginates them onto
-    their own sheets.
+    Each page is a block that starts with the running header band, preceded by
+    ``page-break-before`` so ``QTextDocument`` paginates it onto its own sheet.
+    The risk page carries the LIME profile under the sub-scores, so it flows onto
+    a continuation sheet when the rule list is long.
     """
     ev = result.evaluation
     generated = datetime.now().strftime("%Y-%m-%d %H:%M")
+    # The plan's own success-indicators section is rendered separately below;
+    # leaving it in the body would print the same list twice.
+    plan_body, success_section = _split_success_indicators(plan_text)
 
     parts: list[str] = ['<div style="font-family: Segoe UI, Arial, sans-serif;">']
 
@@ -581,33 +668,24 @@ def build_report_html(case: StudentCase, result: AssessmentResult, plan_text: st
     parts.append(_personal_data_html(case))
 
     # --- Page 2 — Evaluarea riscului ---------------------------------------
+    # The LIME rule list sits under the sub-scores rather than on its own sheet:
+    # it refines the same domain weights, and a teacher reads the two together.
     parts.append(_page_break())
     parts.append(_page_header_html("Evaluarea riscului"))
     parts.append(_spacer(12))
     parts.append(_spacer(4))
     parts.append(_risk_profile_html(ev))
     parts.append(_spacer(6))
-    parts.append(_xai_html(result, two_column=True))
+    parts.append(_xai_html(result, two_column=True, lime_block=_lime_html(result)))
 
-    # --- Page 3 — Profil individual de risc (LIME) -------------------------
-    # Its own sheet: page 2 is already full, and the local rule list is the part
-    # a teacher reads directly, so it should not be squeezed into a margin.
-    lime_block = _lime_html(result)
-    if lime_block:
-        parts.append(_page_break())
-        parts.append(_page_header_html("Profil individual de risc"))
-        parts.append(_spacer(12))
-        parts.append(_spacer(4))
-        parts.append(lime_block)
-
-    # --- Page 4 — Planul de recomandare ------------------------------------
+    # --- Page 3 — Planul de recomandare ------------------------------------
     parts.append(_page_break())
     parts.append(_page_header_html("Planul de recomandare"))
     parts.append(_spacer(12))
     parts.append(_spacer(4))
-    parts.append(_plan_html(plan_text, ev.action_plan_source))
+    parts.append(_plan_html(plan_body, ev.action_plan_source))
     parts.append(_spacer(14))
-    parts.append(_success_indicators_html(ev))
+    parts.append(_success_indicators_html(ev, success_section))
 
     parts.append("</div>")
     return "".join(parts)
