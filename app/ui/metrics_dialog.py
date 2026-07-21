@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import metrics
+from ..timing import STAGE_LABELS
 
 _PRIMARY = "#1f3a5f"
 _PANEL = "#f2f4f7"
@@ -35,6 +36,76 @@ def _cell(label: str, value: str) -> str:
         f'<span style="color:{_MUTED}; font-size:8pt;">{escape(label.upper())}</span><br>'
         f'<span style="font-size:11pt;"><b>{value}</b></span></td>'
     )
+
+
+def _fmt_ms(seconds: float) -> str:
+    """Sub-second stages read better in milliseconds."""
+    return f"{seconds * 1000:.0f} ms" if seconds < 1.0 else f"{seconds:.2f} s"
+
+
+def _stage_breakdown_html(run: metrics.RunMetrics) -> str:
+    """Per-stage latency table: where the time in a report actually goes."""
+    summary = run.stage_summary()
+    if not summary:
+        return ""
+
+    rows = [
+        '<tr bgcolor="{}"><td style="font-size:8pt; color:{};"><b>Etapă</b></td>'
+        '<td style="font-size:8pt; color:{};" align="right"><b>Medie</b></td>'
+        '<td style="font-size:8pt; color:{};" align="right"><b>Ab. std.</b></td>'
+        '<td style="font-size:8pt; color:{};" align="right"><b>N</b></td></tr>'.format(
+            _PANEL, *([_PRIMARY] * 4)
+        )
+    ]
+    # Fixed pipeline order rather than dict order, so the table reads as the
+    # sequence a report actually goes through.
+    ordered = [s for s in STAGE_LABELS if s in summary]
+    for i, stage in enumerate(ordered, start=1):
+        mean, stdev, n = summary[stage]
+        stripe = "#ffffff" if i % 2 else "#f9fafb"
+        rows.append(
+            f'<tr bgcolor="{stripe}">'
+            f'<td style="font-size:8.5pt;">{escape(STAGE_LABELS[stage])}</td>'
+            f'<td style="font-size:8.5pt;" align="right">{_fmt_ms(mean)}</td>'
+            f'<td style="font-size:8.5pt;" align="right">'
+            f'{_fmt_ms(stdev) if n > 1 else "—"}</td>'
+            f'<td style="font-size:8.5pt;" align="right">{n}</td>'
+            '</tr>'
+        )
+    # The LLM call, for scale: it is the reason the local stages look small.
+    rows.append(
+        f'<tr bgcolor="{_PANEL}">'
+        f'<td style="font-size:8.5pt;"><b>Apel LLM (plan de intervenție)</b></td>'
+        f'<td style="font-size:8.5pt;" align="right"><b>'
+        f'{metrics.fmt_seconds(run.avg_latency_s)}</b></td>'
+        f'<td style="font-size:8.5pt;" align="right">'
+        f'{metrics.fmt_seconds(run.stdev_latency_s) if run.report_count > 1 else "—"}</td>'
+        f'<td style="font-size:8.5pt;" align="right">{run.report_count}</td>'
+        '</tr>'
+    )
+
+    parts = [
+        f'<p style="color:{_MUTED}; font-size:8.5pt; margin:10px 0 2px 0;">'
+        '<b>Defalcarea latenței pe etape</b> (medie per raport)</p>',
+        '<table width="100%" cellspacing="0" cellpadding="4" border="1" '
+        f'style="border-color:{_BORDER};">' + "".join(rows) + '</table>',
+    ]
+
+    totals = (
+        f'Nucleu xAI local (NLP + predicție + SHAP + LIME): '
+        f'<b>{_fmt_ms(run.avg_xai_s)}</b> · '
+        f'Total local / raport: <b>{_fmt_ms(run.avg_local_s)}</b> · '
+        f'Total end-to-end / raport: <b>{metrics.fmt_seconds(run.avg_total_report_s)}</b>'
+    )
+    if run.model_load_s is not None:
+        totals += (
+            f' · Încărcare model (o singură dată): '
+            f'<b>{metrics.fmt_seconds(run.model_load_s)}</b>'
+        )
+    parts.append(
+        f'<p style="font-size:8.5pt; color:{_MUTED}; margin:4px 0 0 0;">{totals}</p>'
+    )
+    return "".join(parts)
 
 
 def _run_html(index: int, run: metrics.RunMetrics) -> str:
@@ -78,10 +149,10 @@ def _run_html(index: int, run: metrics.RunMetrics) -> str:
         f"{run.total_input_tokens:,} / {run.total_billed_output_tokens:,}",
     ))
     parts.append('</tr>')
-    # Row 2 — latency
+    # Row 2 — latency (LLM call; the local stages are broken out below)
     parts.append('<tr>')
     parts.append(_cell("Latență totală", metrics.fmt_seconds(run.total_latency_s)))
-    parts.append(_cell("Latență / raport", latency_detail))
+    parts.append(_cell("Latență LLM / raport", latency_detail))
     parts.append(_cell("Latență / apel cloud", metrics.fmt_seconds(run.avg_cloud_latency_s)))
     parts.append(_cell(
         "Latență min / max",
@@ -102,6 +173,8 @@ def _run_html(index: int, run: metrics.RunMetrics) -> str:
             f'{escape(run.pricing_as_of)}; completează MODEL_PRICING pentru cifre '
             f'complete.</p>'
         )
+
+    parts.append(_stage_breakdown_html(run))
 
     # Per-report breakdown table for batch runs.
     if run.report_count > 1:
@@ -143,9 +216,10 @@ def build_runs_html(runs: list[metrics.RunMetrics]) -> str:
     parts.append(
         f'<p style="color:{_MUTED}; font-size:9pt; margin:4px 0 0 0;">'
         'Latența, tokenii (raportați de furnizor) și costul derivat pentru fiecare '
-        'apel de generare a planului. Costul este calculat din tokeni cu tabelul '
-        f'de prețuri din {escape(metrics.PRICING_AS_OF)} — verifică ratele pentru '
-        'modelul.</p>'
+        'apel de generare a planului, plus defalcarea pe etape a pipeline-ului '
+        'local (NLP, predicție, SHAP, LIME, randare PDF). Costul este calculat '
+        f'din tokeni cu tabelul de prețuri din {escape(metrics.PRICING_AS_OF)} — '
+        'verifică ratele pentru model.</p>'
     )
 
     if not runs:

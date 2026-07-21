@@ -2,15 +2,27 @@
 
 from __future__ import annotations
 
+import pytest
+
 from app import metrics
 from app.metrics import CallMetric, MetricsStore, RunMetrics
+from app.timing import StageTimings
 
 
-def _cloud_call(latency=1.0, inp=1000, out=500, think=200, model="gemini-2.5-pro"):
-    return CallMetric.build(
+def _cloud_call(latency=1.0, inp=1000, out=500, think=200, model="gemini-2.5-pro",
+                stages=None):
+    call = CallMetric.build(
         provider_id="gemini", model=model, source="cloud", ok=True,
         latency_s=latency,
         usage={"input_tokens": inp, "output_tokens": out, "thinking_tokens": think},
+    )
+    call.attach_stages(stages)
+    return call
+
+
+def _stages(shap=0.30, lime=0.05, pdf=0.20, **kwargs):
+    return StageTimings(
+        nlp_s=0.001, predict_s=0.002, shap_s=shap, lime_s=lime, pdf_s=pdf, **kwargs
     )
 
 
@@ -171,6 +183,136 @@ def test_generate_action_plan_records_local_metric(trained_model, monkeypatch):
     assert calls[0].source == "local"
     assert calls[0].ok is False
     assert calls[0].cost == 0.0
+
+
+# --- latency breakdown ------------------------------------------------------
+def test_attach_stages_stores_a_detached_copy():
+    """The metric is serialized on add; a live reference could mutate the record."""
+    timings = _stages()
+    call = _cloud_call(stages=timings)
+    timings.record("pdf_s", 5.0)                # later work on the same object
+    assert call.stages.pdf_s == pytest.approx(0.20)
+
+
+def test_attach_stages_accepts_none():
+    call = _cloud_call(stages=None)
+    assert call.stages is None
+    # …and the end-to-end total then degrades to the LLM call alone.
+    assert call.total_report_s == pytest.approx(call.latency_s)
+
+
+def test_total_report_s_combines_local_stages_and_the_llm_call():
+    call = _cloud_call(latency=3.0, stages=_stages())   # local = 0.553
+    assert call.total_report_s == pytest.approx(3.553)
+
+
+def test_stage_summary_reports_mean_sd_and_n_per_stage():
+    run = RunMetrics.for_calls("import", [
+        _cloud_call(stages=_stages(shap=0.20)),
+        _cloud_call(stages=_stages(shap=0.40)),
+    ])
+    summary = run.stage_summary()
+    mean, stdev, n = summary["shap_s"]
+    assert mean == pytest.approx(0.30)
+    assert stdev == pytest.approx(0.1414, abs=1e-3)
+    assert n == 2
+
+
+def test_stage_summary_keeps_one_time_init_out_of_per_student_means():
+    """Only the first report pays explainer construction; it must report n=1.
+
+    Averaging it across the batch would understate the one-time cost and
+    overstate the per-student one — both numbers the paper quotes.
+    """
+    run = RunMetrics.for_calls("import", [
+        _cloud_call(stages=_stages(shap_init_s=1.50)),   # first student
+        _cloud_call(stages=_stages()),                    # cache hit
+        _cloud_call(stages=_stages()),
+    ])
+    summary = run.stage_summary()
+    assert summary["shap_init_s"] == (pytest.approx(1.50), 0.0, 1)
+    assert summary["shap_s"][2] == 3                      # every student ran SHAP
+    assert run.init_total_s == pytest.approx(1.50)
+
+
+def test_run_stage_averages_exclude_the_llm_call():
+    run = RunMetrics.for_calls("import", [
+        _cloud_call(latency=3.0, stages=_stages()),
+        _cloud_call(latency=5.0, stages=_stages()),
+    ])
+    assert run.avg_xai_s == pytest.approx(0.353)      # nlp + predict + shap + lime
+    assert run.avg_local_s == pytest.approx(0.553)    # + pdf
+    assert run.avg_latency_s == pytest.approx(4.0)    # LLM only, unchanged
+    assert run.avg_total_report_s == pytest.approx(4.553)
+
+
+def test_run_without_stage_timings_degrades_cleanly():
+    """Runs recorded before instrumentation existed must still aggregate."""
+    run = RunMetrics.for_calls("single", [_cloud_call(latency=2.0)])
+    assert run.has_stage_timings is False
+    assert run.stage_summary() == {}
+    assert run.avg_xai_s == 0.0
+    assert run.avg_total_report_s == pytest.approx(2.0)
+
+
+def test_model_load_is_run_level_not_per_report():
+    run = RunMetrics.for_calls(
+        "import", [_cloud_call(), _cloud_call()], model_load_s=4.2
+    )
+    assert run.model_load_s == pytest.approx(4.2)
+    # It is not folded into any report's latency.
+    assert run.avg_latency_s == pytest.approx(1.0)
+
+
+def test_stage_timings_survive_the_jsonl_round_trip():
+    run = RunMetrics.for_calls(
+        "import", [_cloud_call(stages=_stages(shap_init_s=1.5))], model_load_s=4.2
+    )
+    restored = RunMetrics.from_dict(run.to_dict())
+    stages = restored.calls[0].stages
+    assert isinstance(stages, StageTimings)       # not a bare dict
+    assert stages.shap_s == pytest.approx(0.30)
+    assert stages.shap_init_s == pytest.approx(1.5)
+    assert stages.pdf_s == pytest.approx(0.20)
+    assert restored.model_load_s == pytest.approx(4.2)
+    assert restored.avg_xai_s == pytest.approx(run.avg_xai_s)
+
+
+def test_csv_export_includes_the_stage_breakdown(tmp_path):
+    path = tmp_path / "metrics.csv"
+    run = RunMetrics.for_calls(
+        "import", [_cloud_call(latency=3.0, stages=_stages())], model_load_s=4.2
+    )
+    metrics.export_calls_csv(str(path), [run])
+    lines = path.read_text(encoding="utf-8-sig").splitlines()
+    header, row = lines[0].split(","), lines[1].split(",")
+    cells = dict(zip(header, row))
+
+    assert cells["shap_s"] == "0.3000"
+    assert cells["lime_s"] == "0.0500"
+    assert cells["pdf_s"] == "0.2000"
+    assert cells["xai_total_s"] == "0.3530"
+    assert cells["local_total_s"] == "0.5530"
+    assert cells["total_report_s"] == "3.5530"
+    assert cells["model_load_s"] == "4.200"
+    assert cells["latency_s"] == "3.000"          # still the LLM call alone
+
+
+def test_csv_leaves_unmeasured_stages_blank_not_zero(tmp_path):
+    """A blank cell says 'not measured'; 0.000 would claim a measurement."""
+    path = tmp_path / "metrics.csv"
+    run = RunMetrics.for_calls("single", [
+        _cloud_call(stages=StageTimings(nlp_s=0.001))   # nothing else measured
+    ])
+    metrics.export_calls_csv(str(path), [run])
+    lines = path.read_text(encoding="utf-8-sig").splitlines()
+    cells = dict(zip(lines[0].split(","), lines[1].split(",")))
+
+    assert cells["nlp_s"] == "0.0010"
+    assert cells["shap_s"] == ""
+    assert cells["lime_s"] == ""
+    assert cells["shap_init_s"] == ""
+    assert cells["model_load_s"] == ""
 
 
 # --- de-identification of the run label ------------------------------------

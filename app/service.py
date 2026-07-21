@@ -6,11 +6,12 @@ service so the window can construct instantly and load the model lazily.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 from .models import LimeExplanation, RiskEvaluation, StudentCase
 from .nlp_engine import NlpResult, analyze
+from .timing import StageTimings, measure
 
 
 @dataclass
@@ -20,6 +21,10 @@ class AssessmentResult:
     # Local LIME profile for this student. ``None`` when ``lime`` is not
     # installed or the surrogate failed — the report then omits that section.
     lime: Optional[LimeExplanation] = None
+    # Wall-clock cost of each local stage of this assessment. The caller attaches
+    # it to the run's performance metric so latency can be reported as a
+    # breakdown rather than a single number — see :mod:`app.timing`.
+    timings: StageTimings = field(default_factory=StageTimings)
 
 
 class AssessmentService:
@@ -27,18 +32,30 @@ class AssessmentService:
 
     def __init__(self):
         self._model = None  # loaded lazily on first use
+        # Seconds spent loading (or training) the model, measured once. It is a
+        # per-process startup cost, not a per-report one, so it is reported at
+        # run level instead of being averaged into any student's latency.
+        self.model_load_s: Optional[float] = None
 
     # Imports are deferred so importing this module stays cheap/fast.
     def ensure_model(self):
         if self._model is None:
+            import time
+
             from .scoring_engine import get_or_train_model
+            start = time.perf_counter()
             self._model = get_or_train_model()
+            self.model_load_s = time.perf_counter() - start
         return self._model
 
     def retrain(self):
         """Force a fresh training run and cache the new model."""
+        import time
+
         from .scoring_engine import get_or_train_model
+        start = time.perf_counter()
         self._model = get_or_train_model(force_retrain=True)
+        self.model_load_s = time.perf_counter() - start
         return self._model
 
     @property
@@ -53,22 +70,31 @@ class AssessmentService:
         """Run the full local pipeline for one case.
 
         ``with_lime`` computes the individual LIME risk profile alongside the
-        SHAP decomposition (~10 ms). It is separable because the two answer
-        different questions — see :mod:`app.lime_explainer`.
+        SHAP decomposition. It is separable because the two answer different
+        questions — see :mod:`app.lime_explainer`.
+
+        Every stage is timed into the returned result's ``timings`` so the cost
+        of the local pipeline can be reported per stage instead of as one
+        opaque duration.
         """
         from .explainability import evaluate_case
         model = self.ensure_model()
-        nlp = analyze(case.observation_text)
-        evaluation = evaluate_case(model, case, nlp)
+        timings = StageTimings()
+
+        with measure(timings, "nlp_s"):
+            nlp = analyze(case.observation_text)
+        evaluation = evaluate_case(model, case, nlp, timings)
 
         lime_profile = None
         if with_lime:
             from .lime_explainer import explain_case
             features = dict(case.features)
             features["Stres_Emotional_NLP"] = round(nlp.stress_score, 3)
-            lime_profile = explain_case(model, features)
+            lime_profile = explain_case(model, features, timings=timings)
 
-        return AssessmentResult(nlp=nlp, evaluation=evaluation, lime=lime_profile)
+        return AssessmentResult(
+            nlp=nlp, evaluation=evaluation, lime=lime_profile, timings=timings
+        )
 
     def assess_many(
         self,

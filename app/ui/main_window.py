@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 from .. import config
 from ..models import StudentCase
 from ..service import AssessmentResult, AssessmentService
+from ..timing import measure
 from .report import (
     build_report_html, build_summary_report_html, export_report_pdf,
     placeholder_html, render_result_html,
@@ -98,10 +99,19 @@ class BatchImportWorker(QThread):
                 plan_text, _source = self._service.generate_plan(
                     evaluation, case, metric_out=call_metrics
                 )
-                html = build_report_html(case, result, plan_text)
-                stem = _safe_stem(case.display_name(), f"elev_{index}")
-                pdf_path = os.path.join(self._out_dir, f"raport_{index:02d}_{stem}.pdf")
-                export_report_pdf(pdf_path, html)
+                with measure(result.timings, "pdf_s"):
+                    html = build_report_html(case, result, plan_text)
+                    stem = _safe_stem(case.display_name(), f"elev_{index}")
+                    pdf_path = os.path.join(
+                        self._out_dir, f"raport_{index:02d}_{stem}.pdf"
+                    )
+                    export_report_pdf(pdf_path, html)
+                # Pair this student's local stage timings with their LLM call, so
+                # the exported row carries the full latency breakdown for the
+                # report. This is the batch path — the one that yields an N-report
+                # dataset with every stage measured.
+                if call_metrics:
+                    call_metrics[-1].attach_stages(result.timings)
                 entries.append((case, evaluation))
                 self.progress.emit(index, total, "Se generează planurile și rapoartele PDF…")
 
@@ -125,7 +135,10 @@ class BatchImportWorker(QThread):
                 metrics_dir = None
 
             from ..metrics import RunMetrics
-            run = RunMetrics.for_calls("import", call_metrics, label=self._source_name)
+            run = RunMetrics.for_calls(
+                "import", call_metrics, label=self._source_name,
+                model_load_s=self._service.model_load_s,
+            )
 
             self.done.emit(
                 {
@@ -522,10 +535,18 @@ class MainWindow(QMainWindow):
         from ..metrics import RunMetrics, get_store, single_run_label
         calls: list = []
         text, source = self.service.generate_plan(evaluation, case, metric_out=calls)
+        # Attach the assessment's stage timings so the single run carries the same
+        # breakdown as a batch row. ``pdf_s`` stays unmeasured here: exporting the
+        # PDF is a separate user action that may never happen, and back-filling it
+        # would mean rewriting a record already flushed to the JSONL log.
+        if calls and self.current_result is not None:
+            calls[0].attach_stages(self.current_result.timings)
         # Deliberately not the student's name: this label reaches the exported
         # research CSV. See metrics.single_run_label.
         label = single_run_label(evaluation.risk_band)
-        get_store().add(RunMetrics.for_calls("single", calls, label=label))
+        get_store().add(RunMetrics.for_calls(
+            "single", calls, label=label, model_load_s=self.service.model_load_s,
+        ))
         return text, source
 
     def _on_plan_done(self, payload) -> None:

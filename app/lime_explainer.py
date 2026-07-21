@@ -46,6 +46,7 @@ from .scoring_engine import (
     encode_case_features,
     generate_synthetic_dataset,
 )
+from .timing import StageTimings, measure
 
 # Perturbations drawn per explanation. 5000 is the value used across the LIME
 # literature; with 17 features and a batched XGBoost predict it costs ~10 ms.
@@ -81,7 +82,7 @@ def _humanise(condition: str) -> str:
     return re.sub(r"(?<![<>=!])\s*=\s*(?!=)", " = ", condition).strip()
 
 
-def _build_explainer(model: RiskModel, seed: int):
+def _build_explainer(model: RiskModel, seed: int, timings: StageTimings | None = None):
     """Fit (and cache) a ``LimeTabularExplainer`` over the training distribution."""
     key = id(model.clf)
     cached = _EXPLAINER_CACHE.get(key)
@@ -90,25 +91,29 @@ def _build_explainer(model: RiskModel, seed: int):
 
     from lime.lime_tabular import LimeTabularExplainer
 
-    background = _encode_dataframe(
-        generate_synthetic_dataset(BACKGROUND_SAMPLES, seed)
-    ).astype(float).to_numpy()
+    # Cache miss: fitting the discretiser over the background distribution is the
+    # expensive one-time cost, kept out of the per-student ``lime_s`` so a batch's
+    # first student does not carry it alone. See :mod:`app.timing`.
+    with measure(timings, "lime_init_s"):
+        background = _encode_dataframe(
+            generate_synthetic_dataset(BACKGROUND_SAMPLES, seed)
+        ).astype(float).to_numpy()
 
-    categorical_indices = list(config.CATEGORICAL_INDICES)
-    explainer = LimeTabularExplainer(
-        background,
-        feature_names=list(config.FEATURE_KEYS),
-        categorical_features=categorical_indices,
-        # Lets LIME print "Participare extrașcolară = Nu" instead of "= 2.0".
-        categorical_names={
-            i: list(config.FEATURES[i].categories) for i in categorical_indices
-        },
-        class_names=list(_CLASS_NAMES),
-        mode="classification",
-        discretize_continuous=True,
-        random_state=seed,
-    )
-    _EXPLAINER_CACHE[key] = explainer
+        categorical_indices = list(config.CATEGORICAL_INDICES)
+        explainer = LimeTabularExplainer(
+            background,
+            feature_names=list(config.FEATURE_KEYS),
+            categorical_features=categorical_indices,
+            # Lets LIME print "Participare extrașcolară = Nu" instead of "= 2.0".
+            categorical_names={
+                i: list(config.FEATURES[i].categories) for i in categorical_indices
+            },
+            class_names=list(_CLASS_NAMES),
+            mode="classification",
+            discretize_continuous=True,
+            random_state=seed,
+        )
+        _EXPLAINER_CACHE[key] = explainer
     return explainer
 
 
@@ -119,6 +124,7 @@ def explain_case(
     num_features: int = NUM_FEATURES,
     num_samples: int = NUM_SAMPLES,
     seed: int = config.RANDOM_SEED,
+    timings: StageTimings | None = None,
 ) -> LimeExplanation | None:
     """Local LIME profile for one student, or ``None`` if ``lime`` is unavailable.
 
@@ -126,9 +132,12 @@ def explain_case(
     model-feature dict — both are normalised through ``compose_model_features``,
     exactly as the SHAP path does, so the two explanations always describe the
     same input row.
+
+    ``timings`` (optional) collects the surrogate's wall-clock cost, split into
+    the one-time explainer construction and this student's fit.
     """
     try:
-        explainer = _build_explainer(model, seed)
+        explainer = _build_explainer(model, seed, timings)
     except ImportError:
         return None  # lime not installed — the report simply omits the section
 
@@ -141,13 +150,14 @@ def explain_case(
         return model.clf.predict_proba(frame)
 
     try:
-        explanation = explainer.explain_instance(
-            row,
-            predict_fn,
-            num_features=num_features,
-            num_samples=num_samples,
-            labels=(1,),
-        )
+        with measure(timings, "lime_s"):
+            explanation = explainer.explain_instance(
+                row,
+                predict_fn,
+                num_features=num_features,
+                num_samples=num_samples,
+                labels=(1,),
+            )
     except Exception:
         return None  # a failed surrogate must never sink an assessment
 

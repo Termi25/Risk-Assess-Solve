@@ -34,6 +34,7 @@ from .scoring_engine import (
     generate_synthetic_dataset,
     _encode_dataframe,
 )
+from .timing import StageTimings, measure
 
 
 # Group each feature into an interpretable domain (drives the sub-scores).
@@ -61,25 +62,49 @@ FEATURE_DOMAINS: dict[str, str] = {
 _EXPLAINER_CACHE: dict[int, shap.Explainer] = {}
 
 
-def _get_explainer(model: RiskModel) -> shap.Explainer:
+def _get_explainer(
+    model: RiskModel, timings: StageTimings | None = None
+) -> shap.Explainer:
     key = id(model.clf)
     cached = _EXPLAINER_CACHE.get(key)
     if cached is not None:
         return cached
 
-    # A background sample defines the reference distribution for the baseline.
-    background = _encode_dataframe(
-        generate_synthetic_dataset(200, config.RANDOM_SEED)
-    ).astype(float)
-    columns = list(config.FEATURE_KEYS)
+    # Cache miss: this is the one-time construction cost, timed separately from
+    # the per-student explanation so it does not inflate the first case's
+    # ``shap_s``. See :mod:`app.timing`.
+    with measure(timings, "shap_init_s"):
+        # A background sample defines the reference distribution for the baseline.
+        background = _encode_dataframe(
+            generate_synthetic_dataset(200, config.RANDOM_SEED)
+        ).astype(float)
+        columns = list(config.FEATURE_KEYS)
 
-    def predict_pos(data: np.ndarray) -> np.ndarray:
-        frame = pd.DataFrame(np.asarray(data, dtype=float), columns=columns)
-        return model.clf.predict_proba(frame)[:, 1]
+        def predict_pos(data: np.ndarray) -> np.ndarray:
+            frame = pd.DataFrame(np.asarray(data, dtype=float), columns=columns)
+            return model.clf.predict_proba(frame)[:, 1]
 
-    masker = shap.maskers.Independent(background, max_samples=100)
-    explainer = shap.Explainer(predict_pos, masker, algorithm="permutation")
-    _EXPLAINER_CACHE[key] = explainer
+        masker = shap.maskers.Independent(background, max_samples=100)
+        explainer = shap.Explainer(predict_pos, masker, algorithm="permutation")
+
+        # Warm-up: constructing the explainer is cheap (~10 ms), but its *first*
+        # call costs ~4 s of lazy setup inside SHAP against ~50 ms for every call
+        # after. Without this throwaway pass that cost lands on whichever student
+        # is evaluated first — an 80x outlier in their ``shap_s`` and a 4-second
+        # stall in the UI. Spending it here attributes it to ``shap_init_s``,
+        # where it belongs, and moves the wait into model loading.
+        #
+        # The warm-up row must be a *composed case row*, not a row of the
+        # background: masking a background row against its own background
+        # short-circuits and leaves ~1.2 s of the setup still unpaid, which then
+        # reappears on the first real student. ``max_evals`` must likewise match
+        # the real call so the same code paths are exercised.
+        try:
+            explainer(encode_case_features({}).astype(float), max_evals=1000)
+        except Exception:
+            pass  # a failed warm-up costs measurement precision, never a result
+
+        _EXPLAINER_CACHE[key] = explainer
     return explainer
 
 
@@ -106,7 +131,7 @@ def _value_display(feature_key: str, features: dict) -> str:
 
 
 def compute_attributions(
-    model: RiskModel, features: dict
+    model: RiskModel, features: dict, timings: StageTimings | None = None
 ) -> tuple[float, list[FeatureAttribution]]:
     """Return (base_value, per-feature SHAP attributions) in probability space."""
     # Compose first so the displayed "valoare" reflects the student's actual
@@ -114,8 +139,9 @@ def compute_attributions(
     # values live under different keys until they are mapped here.
     model_features = compose_model_features(features)
     X = encode_case_features(model_features).astype(float)
-    explainer = _get_explainer(model)
-    explanation = explainer(X, max_evals=1000)
+    explainer = _get_explainer(model, timings)
+    with measure(timings, "shap_s"):
+        explanation = explainer(X, max_evals=1000)
 
     values, base_value = _as_positive_class(
         explanation.values[0], explanation.base_values[0]
@@ -257,15 +283,21 @@ def _sub_scores(attributions: list[FeatureAttribution]) -> list[SubScore]:
     return result
 
 
-def evaluate(model: RiskModel, features: dict) -> RiskEvaluation:
+def evaluate(
+    model: RiskModel, features: dict, timings: StageTimings | None = None
+) -> RiskEvaluation:
     """Run the full local pipeline for one feature dict and return an evaluation.
 
     Note: the action plan is *not* filled here — that is the optional cloud/
     local text-generation step handled by ``llm_client``.
+
+    ``timings`` (optional) collects the wall-clock cost of the prediction and the
+    SHAP explanation as separate stages; ``None`` skips all measurement.
     """
     model_features = compose_model_features(features)
-    probability = model.predict_probability(model_features)
-    base_value, attributions = compute_attributions(model, model_features)
+    with measure(timings, "predict_s"):
+        probability = model.predict_probability(model_features)
+    base_value, attributions = compute_attributions(model, model_features, timings)
     sub_scores = _sub_scores(attributions)
     tier = classify_risk(probability, model_features)
 
@@ -284,11 +316,14 @@ def evaluate(model: RiskModel, features: dict) -> RiskEvaluation:
 
 
 def evaluate_case(
-    model: RiskModel, case: StudentCase, nlp_result: NlpResult
+    model: RiskModel,
+    case: StudentCase,
+    nlp_result: NlpResult,
+    timings: StageTimings | None = None,
 ) -> RiskEvaluation:
     """Evaluate a StudentCase, injecting the NLP stress feature from the text."""
     features = dict(case.features)
     features["Stres_Emotional_NLP"] = round(nlp_result.stress_score, 3)
-    evaluation = evaluate(model, features)
+    evaluation = evaluate(model, features, timings)
     evaluation.student_case_id = case.id
     return evaluation
