@@ -10,12 +10,14 @@ from PySide6.QtWidgets import (
 
 from .. import config, keystore, settings
 from ..docx_reader import DocxError
+from ..i18n import tr, trf
+from . import theme
 
 
 class SettingsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Setări — Cloud & Bază de cunoștințe")
+        self.setWindowTitle(tr("Setări — Cloud & Bază de cunoștințe"))
         self.resize(680, 640)
         self._build_ui()
         self._refresh()
@@ -25,31 +27,31 @@ class SettingsDialog(QDialog):
 
         layout.addWidget(self._build_api_key_group())
 
-        intro = QLabel(
+        intro = QLabel(tr(
             "Atașează un document Word (.docx) — de regulă articolul de "
             "cercetare / metodologia — ca „bază de cunoștințe”. Textul lui este "
             "folosit pentru a ghida generarea planului de intervenție în cloud, "
             "aliniind planul la metodologia ta."
-        )
+        ))
         intro.setWordWrap(True)
         layout.addWidget(intro)
 
-        privacy = QLabel(
+        privacy = QLabel(tr(
             "ℹ️ Documentul este material metodologic (nu date despre elevi). "
             "Datele elevului rămân întotdeauna locale și anonimizate."
-        )
+        ))
         privacy.setWordWrap(True)
-        privacy.setStyleSheet("color:#555; font-size:9pt;")
+        privacy.setStyleSheet(f"color:{theme.muted_color()}; font-size:9pt;")
         layout.addWidget(privacy)
 
-        status_box = QGroupBox("Document curent")
+        status_box = QGroupBox(tr("Document curent"))
         status_layout = QVBoxLayout(status_box)
         self.status_label = QLabel()
         self.status_label.setWordWrap(True)
         status_layout.addWidget(self.status_label)
         layout.addWidget(status_box)
 
-        preview_box = QGroupBox("Previzualizare text extras")
+        preview_box = QGroupBox(tr("Previzualizare text extras"))
         preview_layout = QVBoxLayout(preview_box)
         self.preview = QPlainTextEdit()
         self.preview.setReadOnly(True)
@@ -57,11 +59,11 @@ class SettingsDialog(QDialog):
         layout.addWidget(preview_box, stretch=1)
 
         btn_row = QHBoxLayout()
-        self.btn_choose = QPushButton("Alege document .docx…")
+        self.btn_choose = QPushButton(tr("Alege document .docx…"))
         self.btn_choose.clicked.connect(self._on_choose)
-        self.btn_remove = QPushButton("Elimină")
+        self.btn_remove = QPushButton(tr("Elimină"))
         self.btn_remove.clicked.connect(self._on_remove)
-        btn_close = QPushButton("Închide")
+        btn_close = QPushButton(tr("Închide"))
         btn_close.clicked.connect(self.accept)
         btn_row.addWidget(self.btn_choose)
         btn_row.addWidget(self.btn_remove)
@@ -71,16 +73,16 @@ class SettingsDialog(QDialog):
 
     # --- Cloud provider & API key ------------------------------------------
     def _build_api_key_group(self) -> QGroupBox:
-        box = QGroupBox("Conexiune cloud — furnizor și cheie API")
+        box = QGroupBox(tr("Conexiune cloud — furnizor și cheie API"))
         v = QVBoxLayout(box)
 
-        info = QLabel(
+        info = QLabel(tr(
             "Opțional. Alege un furnizor și introdu cheia lui API pentru a genera "
             "planul de intervenție în cloud. Fără cheie, aplicația rămâne complet "
             "funcțională și folosește generatorul local. Cheile sunt păstrate "
             "securizat în seiful de credențiale al sistemului de operare "
             "(Windows Credential Manager) — niciodată în fișiere text."
-        )
+        ))
         info.setWordWrap(True)
         v.addWidget(info)
 
@@ -91,7 +93,7 @@ class SettingsDialog(QDialog):
         idx = self.provider_combo.findData(settings.get_active_provider())
         self.provider_combo.setCurrentIndex(max(0, idx))
         self.provider_combo.currentIndexChanged.connect(self._on_provider_changed)
-        form.addRow("Furnizor:", self.provider_combo)
+        form.addRow(tr("Furnizor:"), self.provider_combo)
         v.addLayout(form)
 
         self.key_status = QLabel()
@@ -102,16 +104,16 @@ class SettingsDialog(QDialog):
         self.key_input = QLineEdit()
         self.key_input.setEchoMode(QLineEdit.Password)
         self.key_input.returnPressed.connect(self._on_save_key)
-        self.chk_show = QCheckBox("Afișează")
+        self.chk_show = QCheckBox(tr("Afișează"))
         self.chk_show.toggled.connect(self._on_toggle_key_visibility)
         row.addWidget(self.key_input, stretch=1)
         row.addWidget(self.chk_show)
         v.addLayout(row)
 
         btns = QHBoxLayout()
-        self.btn_save_key = QPushButton("Salvează cheia")
+        self.btn_save_key = QPushButton(tr("Salvează cheia"))
         self.btn_save_key.clicked.connect(self._on_save_key)
-        self.btn_clear_key = QPushButton("Șterge cheia")
+        self.btn_clear_key = QPushButton(tr("Șterge cheia"))
         self.btn_clear_key.clicked.connect(self._on_clear_key)
         btns.addWidget(self.btn_save_key)
         btns.addWidget(self.btn_clear_key)
@@ -128,11 +130,12 @@ class SettingsDialog(QDialog):
         self.key_input.setPlaceholderText(provider.key_prefix)
 
         if not keystore.keyring_available():
-            self.key_status.setText(
+            self.key_status.setText(trf(
                 "⚠️ Stocarea securizată nu este disponibilă pe acest sistem. "
-                f"Poți folosi în schimb variabila de mediu {provider.env_var}."
-            )
-            self.key_status.setStyleSheet("color:#a15c00;")
+                "Poți folosi în schimb variabila de mediu {env_var}.",
+                env_var=provider.env_var,
+            ))
+            self.key_status.setStyleSheet(f"color:{theme.warning_color()};")
             for w in (self.key_input, self.chk_show,
                       self.btn_save_key, self.btn_clear_key):
                 w.setEnabled(False)
@@ -144,19 +147,20 @@ class SettingsDialog(QDialog):
         has_stored = bool(keystore.get_stored_key(provider.id))
         source = keystore.key_source(provider.id)
         if source == "env":
-            msg = (f"Activ: cheia din variabila de mediu {provider.env_var} "
-                   "(are prioritate față de cheia salvată).")
+            msg = trf("Activ: cheia din variabila de mediu {env_var} "
+                      "(are prioritate față de cheia salvată).",
+                      env_var=provider.env_var)
             if has_stored:
-                msg += (" O cheie este și salvată în seif, dar este ignorată "
-                        "cât timp variabila de mediu există.")
-            color = "#0a7d00"
+                msg += tr(" O cheie este și salvată în seif, dar este ignorată "
+                          "cât timp variabila de mediu există.")
+            color = theme.success_color()
         elif source == "stored":
-            msg = "Activ: o cheie este salvată securizat în seiful sistemului. ✓"
-            color = "#0a7d00"
+            msg = tr("Activ: o cheie este salvată securizat în seiful sistemului. ✓")
+            color = theme.success_color()
         else:
-            msg = ("Nicio cheie pentru acest furnizor — se folosește "
-                   "generatorul local (offline).")
-            color = "#555"
+            msg = tr("Nicio cheie pentru acest furnizor — se folosește "
+                     "generatorul local (offline).")
+            color = theme.muted_color()
         self.key_status.setText(msg)
         self.key_status.setStyleSheet(f"color:{color};")
         self.btn_clear_key.setEnabled(has_stored)
@@ -177,36 +181,39 @@ class SettingsDialog(QDialog):
         key = self.key_input.text().strip()
         if not key:
             QMessageBox.warning(
-                self, "Cheie goală",
-                "Introdu o cheie API înainte de salvare.",
+                self, tr("Cheie goală"),
+                tr("Introdu o cheie API înainte de salvare."),
             )
             return
         try:
             keystore.set_stored_key(provider.id, key)
         except Exception as exc:  # noqa: BLE001
             QMessageBox.critical(
-                self, "Eroare", f"Cheia nu a putut fi salvată: {exc}"
+                self, tr("Eroare"),
+                trf("Cheia nu a putut fi salvată: {error}", error=exc),
             )
             return
         self.key_input.clear()
         self.chk_show.setChecked(False)
         QMessageBox.information(
-            self, "Salvat",
-            f"Cheia API pentru {provider.label} a fost salvată securizat.",
+            self, tr("Salvat"),
+            trf("Cheia API pentru {provider} a fost salvată securizat.",
+                provider=provider.label),
         )
         self._refresh_key_status()
 
     def _on_clear_key(self) -> None:
         provider = self._current_provider()
         if QMessageBox.question(
-            self, "Confirmă",
-            f"Ștergi cheia API salvată pentru {provider.label}?",
+            self, tr("Confirmă"),
+            trf("Ștergi cheia API salvată pentru {provider}?",
+                provider=provider.label),
         ) != QMessageBox.Yes:
             return
         keystore.clear_stored_key(provider.id)
         self.key_input.clear()
         QMessageBox.information(
-            self, "Șters", "Cheia API a fost ștearsă din seif."
+            self, tr("Șters"), tr("Cheia API a fost ștearsă din seif.")
         )
         self._refresh_key_status()
 
@@ -217,35 +224,36 @@ class SettingsDialog(QDialog):
         if kb:
             self.status_label.setText(
                 f"<b>{kb.get('filename', '?')}</b><br>"
-                f"Caractere extrase: {kb.get('char_count', 0):,}<br>"
-                f"Adăugat: {kb.get('added_at', '')}"
+                + trf("Caractere extrase: {chars:,}", chars=kb.get("char_count", 0))
+                + "<br>"
+                + trf("Adăugat: {added}", added=kb.get("added_at", ""))
             )
             self.preview.setPlainText(kb.get("text", "")[:4000])
             self.btn_remove.setEnabled(True)
         else:
-            self.status_label.setText("<i>Niciun document încărcat.</i>")
+            self.status_label.setText(tr("<i>Niciun document încărcat.</i>"))
             self.preview.setPlainText("")
             self.btn_remove.setEnabled(False)
 
     def _on_choose(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
-            self, "Alege documentul de cunoștințe", "",
-            "Documente Word (*.docx)",
+            self, tr("Alege documentul de cunoștințe"), "",
+            tr("Documente Word (*.docx)"),
         )
         if not path:
             return
         try:
             entry = settings.set_knowledge_from_docx(path)
         except DocxError as exc:
-            QMessageBox.warning(self, "Document invalid", str(exc))
+            QMessageBox.warning(self, tr("Document invalid"), str(exc))
             return
         except Exception as exc:  # noqa: BLE001
-            QMessageBox.critical(self, "Eroare", f"{type(exc).__name__}: {exc}")
+            QMessageBox.critical(self, tr("Eroare"), f"{type(exc).__name__}: {exc}")
             return
         QMessageBox.information(
-            self, "Salvat",
-            f"Bază de cunoștințe actualizată: {entry['filename']} "
-            f"({entry['char_count']:,} caractere).",
+            self, tr("Salvat"),
+            trf("Bază de cunoștințe actualizată: {filename} ({chars:,} caractere).",
+                filename=entry["filename"], chars=entry["char_count"]),
         )
         self._refresh()
 

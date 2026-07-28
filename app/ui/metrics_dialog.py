@@ -17,8 +17,12 @@ from PySide6.QtWidgets import (
 )
 
 from .. import metrics
+from ..i18n import tr, trf
 from ..timing import STAGE_LABELS
+from . import theme
 
+# This view renders document-style HTML, so its palette is fixed light and does
+# not follow the app theme — see ``theme.document_qss``.
 _PRIMARY = "#1f3a5f"
 _PANEL = "#f2f4f7"
 _BORDER = "#d8dee8"
@@ -50,11 +54,14 @@ def _stage_breakdown_html(run: metrics.RunMetrics) -> str:
         return ""
 
     rows = [
-        '<tr bgcolor="{}"><td style="font-size:8pt; color:{};"><b>Etapă</b></td>'
-        '<td style="font-size:8pt; color:{};" align="right"><b>Medie</b></td>'
-        '<td style="font-size:8pt; color:{};" align="right"><b>Ab. std.</b></td>'
+        '<tr bgcolor="{}"><td style="font-size:8pt; color:{};"><b>{}</b></td>'
+        '<td style="font-size:8pt; color:{};" align="right"><b>{}</b></td>'
+        '<td style="font-size:8pt; color:{};" align="right"><b>{}</b></td>'
         '<td style="font-size:8pt; color:{};" align="right"><b>N</b></td></tr>'.format(
-            _PANEL, *([_PRIMARY] * 4)
+            _PANEL, _PRIMARY, escape(tr("Etapă")),
+            _PRIMARY, escape(tr("Medie")),
+            _PRIMARY, escape(tr("Ab. std.")),
+            _PRIMARY,
         )
     ]
     # Fixed pipeline order rather than dict order, so the table reads as the
@@ -65,7 +72,7 @@ def _stage_breakdown_html(run: metrics.RunMetrics) -> str:
         stripe = "#ffffff" if i % 2 else "#f9fafb"
         rows.append(
             f'<tr bgcolor="{stripe}">'
-            f'<td style="font-size:8.5pt;">{escape(STAGE_LABELS[stage])}</td>'
+            f'<td style="font-size:8.5pt;">{escape(tr(STAGE_LABELS[stage]))}</td>'
             f'<td style="font-size:8.5pt;" align="right">{_fmt_ms(mean)}</td>'
             f'<td style="font-size:8.5pt;" align="right">'
             f'{_fmt_ms(stdev) if n > 1 else "—"}</td>'
@@ -75,7 +82,8 @@ def _stage_breakdown_html(run: metrics.RunMetrics) -> str:
     # The LLM call, for scale: it is the reason the local stages look small.
     rows.append(
         f'<tr bgcolor="{_PANEL}">'
-        f'<td style="font-size:8.5pt;"><b>Apel LLM (plan de intervenție)</b></td>'
+        f'<td style="font-size:8.5pt;"><b>{escape(tr("Apel LLM (plan de intervenție)"))}'
+        f'</b></td>'
         f'<td style="font-size:8.5pt;" align="right"><b>'
         f'{metrics.fmt_seconds(run.avg_latency_s)}</b></td>'
         f'<td style="font-size:8.5pt;" align="right">'
@@ -86,20 +94,22 @@ def _stage_breakdown_html(run: metrics.RunMetrics) -> str:
 
     parts = [
         f'<p style="color:{_MUTED}; font-size:8.5pt; margin:10px 0 2px 0;">'
-        '<b>Defalcarea latenței pe etape</b> (medie per raport)</p>',
+        f'<b>{escape(tr("Defalcarea latenței pe etape"))}</b> '
+        f'{escape(tr("(medie per raport)"))}</p>',
         '<table width="100%" cellspacing="0" cellpadding="4" border="1" '
         f'style="border-color:{_BORDER};">' + "".join(rows) + '</table>',
     ]
 
     totals = (
-        f'Nucleu xAI local (NLP + predicție + SHAP + LIME): '
+        f'{escape(tr("Nucleu xAI local (NLP + predicție + SHAP + LIME)"))}: '
         f'<b>{_fmt_ms(run.avg_xai_s)}</b> · '
-        f'Total local / raport: <b>{_fmt_ms(run.avg_local_s)}</b> · '
-        f'Total end-to-end / raport: <b>{metrics.fmt_seconds(run.avg_total_report_s)}</b>'
+        f'{escape(tr("Total local / raport"))}: <b>{_fmt_ms(run.avg_local_s)}</b> · '
+        f'{escape(tr("Total end-to-end / raport"))}: '
+        f'<b>{metrics.fmt_seconds(run.avg_total_report_s)}</b>'
     )
     if run.model_load_s is not None:
         totals += (
-            f' · Încărcare model (o singură dată): '
+            f' · {escape(tr("Încărcare model (o singură dată)"))}: '
             f'<b>{metrics.fmt_seconds(run.model_load_s)}</b>'
         )
     parts.append(
@@ -109,7 +119,7 @@ def _stage_breakdown_html(run: metrics.RunMetrics) -> str:
 
 
 def _run_html(index: int, run: metrics.RunMetrics) -> str:
-    type_label = _RUN_TYPE_LABELS.get(run.run_type, run.run_type)
+    type_label = tr(_RUN_TYPE_LABELS.get(run.run_type, run.run_type))
     header_bits = [escape(run.started_at)]
     if run.label:
         header_bits.append(escape(run.label))
@@ -132,46 +142,50 @@ def _run_html(index: int, run: metrics.RunMetrics) -> str:
     per_report = metrics.fmt_cost(run.cost_per_report if priced else None)
     per_cloud_call = metrics.fmt_cost(run.cost_per_cloud_call if priced else None)
     latency_detail = (
-        f"{metrics.fmt_seconds(run.avg_latency_s)} medie"
+        trf("{mean} medie", mean=metrics.fmt_seconds(run.avg_latency_s))
         + (f" ± {run.stdev_latency_s:.2f}" if run.report_count > 1 else "")
     )
 
     parts.append('<table cellspacing="0" cellpadding="0" style="margin-top:6px;">')
     # Row 1 — activity
     parts.append('<tr>')
-    parts.append(_cell("Rapoarte generate", str(run.report_count)))
+    parts.append(_cell(tr("Rapoarte generate"), str(run.report_count)))
     parts.append(_cell(
-        "Apeluri cloud / local",
+        tr("Apeluri cloud / local"),
         f"{run.cloud_calls} / {run.local_calls + run.fallback_calls}",
     ))
     parts.append(_cell(
-        "Tokeni (intrare / ieșire)",
+        tr("Tokeni (intrare / ieșire)"),
         f"{run.total_input_tokens:,} / {run.total_billed_output_tokens:,}",
     ))
     parts.append('</tr>')
     # Row 2 — latency (LLM call; the local stages are broken out below)
     parts.append('<tr>')
-    parts.append(_cell("Latență totală", metrics.fmt_seconds(run.total_latency_s)))
-    parts.append(_cell("Latență LLM / raport", latency_detail))
-    parts.append(_cell("Latență / apel cloud", metrics.fmt_seconds(run.avg_cloud_latency_s)))
+    parts.append(_cell(tr("Latență totală"), metrics.fmt_seconds(run.total_latency_s)))
+    parts.append(_cell(tr("Latență LLM / raport"), latency_detail))
+    parts.append(_cell(tr("Latență / apel cloud"),
+                       metrics.fmt_seconds(run.avg_cloud_latency_s)))
     parts.append(_cell(
-        "Latență min / max",
+        tr("Latență min / max"),
         f"{run.min_latency_s:.2f} / {run.max_latency_s:.2f} s",
     ))
     parts.append('</tr>')
     # Row 3 — cost
     parts.append('<tr>')
-    parts.append(_cell("Cost total", cost_total))
-    parts.append(_cell("Cost / raport", per_report))
-    parts.append(_cell("Cost / apel cloud", per_cloud_call))
+    parts.append(_cell(tr("Cost total"), cost_total))
+    parts.append(_cell(tr("Cost / raport"), per_report))
+    parts.append(_cell(tr("Cost / apel cloud"), per_cloud_call))
     parts.append('</tr></table>')
 
     if not run.pricing_available:
         parts.append(
             f'<p style="color:#b45309; font-size:8.5pt; margin:4px 0 0 0;">'
-            f'Cost parțial: modelul nu are un preț în snapshot-ul '
-            f'{escape(run.pricing_as_of)}; completează MODEL_PRICING pentru cifre '
-            f'complete.</p>'
+            + escape(trf(
+                "Cost parțial: modelul nu are un preț în snapshot-ul {as_of}; "
+                "completează MODEL_PRICING pentru cifre complete.",
+                as_of=run.pricing_as_of,
+            ))
+            + '</p>'
         )
 
     parts.append(_stage_breakdown_html(run))
@@ -180,12 +194,17 @@ def _run_html(index: int, run: metrics.RunMetrics) -> str:
     if run.report_count > 1:
         rows = [
             '<tr bgcolor="{}"><td style="font-size:8pt; color:{};"><b>#</b></td>'
-            '<td style="font-size:8pt; color:{};"><b>Sursă</b></td>'
-            '<td style="font-size:8pt; color:{};" align="right"><b>Latență</b></td>'
-            '<td style="font-size:8pt; color:{};" align="right"><b>Tok. intr.</b></td>'
-            '<td style="font-size:8pt; color:{};" align="right"><b>Tok. ieș.</b></td>'
-            '<td style="font-size:8pt; color:{};" align="right"><b>Cost</b></td></tr>'.format(
-                _PANEL, *([_PRIMARY] * 6)
+            '<td style="font-size:8pt; color:{};"><b>{}</b></td>'
+            '<td style="font-size:8pt; color:{};" align="right"><b>{}</b></td>'
+            '<td style="font-size:8pt; color:{};" align="right"><b>{}</b></td>'
+            '<td style="font-size:8pt; color:{};" align="right"><b>{}</b></td>'
+            '<td style="font-size:8pt; color:{};" align="right"><b>{}</b></td></tr>'.format(
+                _PANEL, _PRIMARY,
+                _PRIMARY, escape(tr("Sursă")),
+                _PRIMARY, escape(tr("Latență")),
+                _PRIMARY, escape(tr("Tok. intr.")),
+                _PRIMARY, escape(tr("Tok. ieș.")),
+                _PRIMARY, escape(tr("Cost")),
             )
         ]
         for i, call in enumerate(run.calls, start=1):
@@ -211,22 +230,28 @@ def _run_html(index: int, run: metrics.RunMetrics) -> str:
 def build_runs_html(runs: list[metrics.RunMetrics]) -> str:
     parts: list[str] = ['<div style="font-family: Segoe UI, Arial, sans-serif; color:#2b2b2b;">']
     parts.append(
-        f'<span style="color:{_PRIMARY}; font-size:15pt;"><b>Metrici de performanță pe rulare</b></span>'
+        f'<span style="color:{_PRIMARY}; font-size:15pt;"><b>'
+        f'{escape(tr("Metrici de performanță pe rulare"))}</b></span>'
     )
     parts.append(
         f'<p style="color:{_MUTED}; font-size:9pt; margin:4px 0 0 0;">'
-        'Latența, tokenii (raportați de furnizor) și costul derivat pentru fiecare '
-        'apel de generare a planului, plus defalcarea pe etape a pipeline-ului '
-        'local (NLP, predicție, SHAP, LIME, randare PDF). Costul este calculat '
-        f'din tokeni cu tabelul de prețuri din {escape(metrics.PRICING_AS_OF)} — '
-        'verifică ratele pentru model.</p>'
+        + escape(trf(
+            "Latența, tokenii (raportați de furnizor) și costul derivat pentru "
+            "fiecare apel de generare a planului, plus defalcarea pe etape a "
+            "pipeline-ului local (NLP, predicție, SHAP, LIME, randare PDF). "
+            "Costul este calculat din tokeni cu tabelul de prețuri din {as_of} — "
+            "verifică ratele pentru model.",
+            as_of=metrics.PRICING_AS_OF,
+        ))
+        + '</p>'
     )
 
     if not runs:
         parts.append(
-            '<p style="color:#888; margin-top:16px;"><i>Nu există rulări '
-            'înregistrate încă. Generează un plan sau importă un fișier pentru a '
-            'colecta metrici.</i></p></div>'
+            '<p style="color:#888; margin-top:16px;"><i>'
+            + escape(tr("Nu există rulări înregistrate încă. Generează un plan "
+                        "sau importă un fișier pentru a colecta metrici."))
+            + '</i></p></div>'
         )
         return "".join(parts)
 
@@ -235,9 +260,12 @@ def build_runs_html(runs: list[metrics.RunMetrics]) -> str:
     total_cost = sum(r.total_cost for r in runs)
     all_priced = all(r.pricing_available for r in runs)
     parts.append(
-        f'<p style="font-size:9.5pt; margin:8px 0 0 0;">'
-        f'<b>{len(runs)}</b> rulări · <b>{total_reports}</b> rapoarte · cost cumulat '
-        f'<b>{metrics.fmt_cost(total_cost if all_priced else None)}</b></p>'
+        '<p style="font-size:9.5pt; margin:8px 0 0 0;">'
+        + trf("<b>{runs}</b> rulări · <b>{reports}</b> rapoarte · "
+              "cost cumulat <b>{cost}</b>",
+              runs=len(runs), reports=total_reports,
+              cost=metrics.fmt_cost(total_cost if all_priced else None))
+        + '</p>'
     )
 
     for index, run in enumerate(reversed(runs), start=1):
@@ -253,19 +281,20 @@ class MetricsDialog(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Metrici de performanță")
+        self.setWindowTitle(tr("Metrici de performanță"))
         self.resize(720, 640)
 
         layout = QVBoxLayout(self)
         self.view = QTextBrowser()
+        self.view.setStyleSheet(theme.document_qss())
         layout.addWidget(self.view)
 
         buttons = QHBoxLayout()
-        self.btn_export = QPushButton("Exportă CSV…")
+        self.btn_export = QPushButton(tr("Exportă CSV…"))
         self.btn_export.clicked.connect(self._on_export)
-        self.btn_clear = QPushButton("Golește istoricul")
+        self.btn_clear = QPushButton(tr("Golește istoricul"))
         self.btn_clear.clicked.connect(self._on_clear)
-        btn_close = QPushButton("Închide")
+        btn_close = QPushButton(tr("Închide"))
         btn_close.clicked.connect(self.accept)
         buttons.addWidget(self.btn_export)
         buttons.addWidget(self.btn_clear)
@@ -287,8 +316,8 @@ class MetricsDialog(QDialog):
         if not runs:
             return
         path, _ = QFileDialog.getSaveFileName(
-            self, "Exportă metricile ca CSV", "metrici_performanta.csv",
-            "Fișier CSV (*.csv)",
+            self, tr("Exportă metricile ca CSV"), "metrici_performanta.csv",
+            tr("Fișier CSV (*.csv)"),
         )
         if not path:
             return
@@ -297,17 +326,20 @@ class MetricsDialog(QDialog):
         try:
             rows = metrics.export_calls_csv(path, runs)
         except Exception as exc:
-            QMessageBox.critical(self, "Export eșuat", f"{type(exc).__name__}: {exc}")
+            QMessageBox.critical(
+                self, tr("Export eșuat"), f"{type(exc).__name__}: {exc}"
+            )
             return
         QMessageBox.information(
-            self, "Export finalizat", f"S-au exportat {rows} rânduri în:\n{path}"
+            self, tr("Export finalizat"),
+            trf("S-au exportat {rows} rânduri în:\n{path}", rows=rows, path=path),
         )
 
     def _on_clear(self) -> None:
         if QMessageBox.question(
-            self, "Golește istoricul",
-            "Ștergi toate metricile de performanță înregistrate? "
-            "Acțiunea nu poate fi anulată.",
+            self, tr("Golește istoricul"),
+            tr("Ștergi toate metricile de performanță înregistrate? "
+               "Acțiunea nu poate fi anulată."),
         ) != QMessageBox.Yes:
             return
         metrics.get_store().clear()

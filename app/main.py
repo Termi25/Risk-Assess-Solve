@@ -9,12 +9,20 @@ import sys
 def main() -> int:
     from PySide6.QtWidgets import QApplication
 
+    from . import i18n
     from .config import APP_NAME, APP_TITLE
     from .ui.main_window import MainWindow
+    from .ui.theme import load_theme
 
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
-    app.setApplicationDisplayName(APP_TITLE)
+
+    # Language before the window, theme before anything is shown: the window
+    # translates its labels in its constructor, and applying the palette after
+    # show() would flash the old colours.
+    i18n.load_language()
+    load_theme(app)
+    app.setApplicationDisplayName(i18n.tr(APP_TITLE))
 
     window = MainWindow()
     window.show()

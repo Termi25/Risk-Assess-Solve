@@ -55,6 +55,37 @@ def set_active_provider(provider_id: str) -> None:
     save_settings(data)
 
 
+# --- Appearance & language --------------------------------------------------
+# Both are pure interface preferences. Notably the language does *not* change
+# what is stored or fed to the model — the questionnaire's category values stay
+# Romanian in the database and in the feature frame (see :mod:`app.i18n`), so a
+# report exported today stays comparable with one exported before the switch.
+def get_theme() -> str:
+    from .ui.theme import DEFAULT_THEME, THEMES
+
+    code = load_settings().get("theme", DEFAULT_THEME)
+    return code if any(c == code for c, _ in THEMES) else DEFAULT_THEME
+
+
+def set_theme(code: str) -> None:
+    data = load_settings()
+    data["theme"] = code
+    save_settings(data)
+
+
+def get_language() -> str:
+    from .i18n import DEFAULT_LANGUAGE, LANGUAGES
+
+    code = load_settings().get("language", DEFAULT_LANGUAGE)
+    return code if any(c == code for c, _ in LANGUAGES) else DEFAULT_LANGUAGE
+
+
+def set_language(code: str) -> None:
+    data = load_settings()
+    data["language"] = code
+    save_settings(data)
+
+
 # --- Knowledge base ---------------------------------------------------------
 def get_knowledge() -> Optional[dict]:
     """Return the stored knowledge-base metadata + text, or None."""

@@ -336,13 +336,35 @@ def local_action_plan(
     return _local_plan(evaluation, questionnaire_answers, observation_text), "local template"
 
 
+# Appended when the interface language is not Romanian. ``SYSTEM_PROMPT`` states
+# its output language inline, so the override has to be explicit and last —
+# including the section names, which are named in Romanian above.
+_ENGLISH_OVERRIDE = (
+    "\n\nLANGUAGE OVERRIDE — this instruction takes precedence over the "
+    "Romanian-language requirement stated above: write the entire plan in "
+    "English. Use these section headings instead of the Romanian ones:\n"
+    "1. Risk summary (2–3 sentences).\n"
+    "2. Educational contract (mutual commitments student–teacher–family).\n"
+    "3. Targeted measures for the top 2–3 identified risk factors.\n"
+    "4. Success indicators over 4 weeks (measurable).\n"
+    "For the educational contract use bold sub-headings "
+    "(«**Student commitment:**», «**Teacher commitment:**», "
+    "«**Family commitment:**»). All other formatting rules still apply."
+)
+
+
 def _build_system_prompt(knowledge_text: str | None) -> str:
     """System prompt, optionally grounded in the knowledge-base document."""
+    from .i18n import get_language
+
+    prompt = SYSTEM_PROMPT
+    if get_language() == "en":
+        prompt += _ENGLISH_OVERRIDE
     if not knowledge_text:
-        return SYSTEM_PROMPT
+        return prompt
     snippet = knowledge_text.strip()[: config.KNOWLEDGE_MAX_CHARS]
     return (
-        SYSTEM_PROMPT
+        prompt
         + "\n\nMATERIAL METODOLOGIC DE REFERINȚĂ (bază de cunoștințe încărcată "
         "de utilizator). Folosește-l pentru a alinia planul la metodologia și "
         "terminologia din cercetare; nu îl cita textual:\n"

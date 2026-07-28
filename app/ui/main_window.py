@@ -11,7 +11,7 @@ from datetime import datetime
 import traceback
 
 from PySide6.QtCore import QDate, Qt, QThread, Signal
-from PySide6.QtGui import QAction, QFont
+from PySide6.QtGui import QAction, QActionGroup, QFont
 from PySide6.QtWidgets import (
     QComboBox, QDateEdit, QDoubleSpinBox, QFileDialog, QFormLayout, QGroupBox,
     QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox, QPlainTextEdit,
@@ -20,9 +20,11 @@ from PySide6.QtWidgets import (
 )
 
 from .. import config
+from ..i18n import tr, trf
 from ..models import StudentCase
 from ..service import AssessmentResult, AssessmentService
 from ..timing import measure
+from . import theme
 from .report import (
     build_report_html, build_summary_report_html, export_report_pdf,
     placeholder_html, render_result_html,
@@ -80,11 +82,11 @@ class BatchImportWorker(QThread):
             cases = self._cases
             total = len(cases)
 
-            self.progress.emit(0, total, "Se evaluează elevii…")
+            self.progress.emit(0, total, tr("Se evaluează elevii…"))
             results = self._service.assess_many(
                 cases,
                 progress=lambda done, tot: self.progress.emit(
-                    done, tot, "Se evaluează elevii…"
+                    done, tot, tr("Se evaluează elevii…")
                 ),
             )
 
@@ -113,7 +115,9 @@ class BatchImportWorker(QThread):
                 if call_metrics:
                     call_metrics[-1].attach_stages(result.timings)
                 entries.append((case, evaluation))
-                self.progress.emit(index, total, "Se generează planurile și rapoartele PDF…")
+                self.progress.emit(
+                    index, total, tr("Se generează planurile și rapoartele PDF…")
+                )
 
             summary_html = build_summary_report_html(
                 entries, model_version=self._service.model_version
@@ -123,7 +127,7 @@ class BatchImportWorker(QThread):
 
             # Model-evaluation charts alongside the reports (best-effort: a
             # plotting failure must never sink an otherwise-complete batch).
-            self.progress.emit(total, total, "Se generează graficele metricilor…")
+            self.progress.emit(total, total, tr("Se generează graficele metricilor…"))
             metrics_dir = None
             try:
                 from ..model_report import save_metric_images
@@ -201,7 +205,7 @@ def _compose_observation_text(answers: dict[str, object]) -> str:
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle(config.APP_TITLE)
+        self.setWindowTitle(tr(config.APP_TITLE))
         self.resize(1180, 780)
 
         self.service = AssessmentService()
@@ -217,41 +221,126 @@ class MainWindow(QMainWindow):
 
     # --- UI construction ---------------------------------------------------
     def _build_menu(self) -> None:
-        questionnaire_menu = self.menuBar().addMenu("&Chestionar")
-        self.act_import = QAction("Importă răspunsuri Google Forms (.xlsx)…", self)
+        questionnaire_menu = self.menuBar().addMenu(tr("&Chestionar"))
+        self.act_import = QAction(tr("Importă răspunsuri Google Forms (.xlsx)…"), self)
         self.act_import.triggered.connect(self._on_import_excel)
         questionnaire_menu.addAction(self.act_import)
 
-        settings_menu = self.menuBar().addMenu("&Setări")
-        act_kb = QAction("Bază de cunoștințe (.docx)…", self)
+        settings_menu = self.menuBar().addMenu(tr("&Setări"))
+        act_kb = QAction(tr("Bază de cunoștințe (.docx)…"), self)
         act_kb.triggered.connect(self._on_settings)
         settings_menu.addAction(act_kb)
 
-        model_menu = self.menuBar().addMenu("&Model")
-        act_retrain = QAction("Reantrenează modelul", self)
+        self._build_appearance_menu()
+
+        model_menu = self.menuBar().addMenu(tr("&Model"))
+        act_retrain = QAction(tr("Reantrenează modelul"), self)
         act_retrain.triggered.connect(self._on_retrain)
         model_menu.addAction(act_retrain)
-        act_metrics = QAction("Metrici model…", self)
+        act_metrics = QAction(tr("Metrici model…"), self)
         act_metrics.triggered.connect(self._on_metrics)
         model_menu.addAction(act_metrics)
-        act_charts = QAction("Salvează graficele metricilor…", self)
+        act_charts = QAction(tr("Salvează graficele metricilor…"), self)
         act_charts.triggered.connect(self._on_save_metric_charts)
         model_menu.addAction(act_charts)
 
-        perf_menu = self.menuBar().addMenu("&Performanță")
-        act_perf = QAction("Metrici pe rulare (latență / cost)…", self)
+        perf_menu = self.menuBar().addMenu(tr("&Performanță"))
+        act_perf = QAction(tr("Metrici pe rulare (latență / cost)…"), self)
         act_perf.triggered.connect(self._on_perf_metrics)
         perf_menu.addAction(act_perf)
 
-        help_menu = self.menuBar().addMenu("&Ajutor")
-        act_about = QAction("Despre", self)
+        help_menu = self.menuBar().addMenu(tr("&Ajutor"))
+        act_about = QAction(tr("Despre"), self)
         act_about.triggered.connect(self._on_about)
         help_menu.addAction(act_about)
 
+    def _build_appearance_menu(self) -> None:
+        """Theme and interface language, as two exclusive checkable groups."""
+        from .. import i18n
+
+        menu = self.menuBar().addMenu(tr("&Aspect"))
+
+        theme_menu = menu.addMenu(tr("Temă"))
+        theme_group = QActionGroup(self)
+        theme_group.setExclusive(True)
+        active_theme = theme.get_theme()
+        for code, label in theme.available_themes():
+            action = QAction(tr(label), self, checkable=True)
+            action.setChecked(code == active_theme)
+            action.triggered.connect(lambda _checked, c=code: self._on_theme_changed(c))
+            theme_group.addAction(action)
+            theme_menu.addAction(action)
+
+        lang_menu = menu.addMenu(tr("Limbă"))
+        lang_group = QActionGroup(self)
+        lang_group.setExclusive(True)
+        active_lang = i18n.get_language()
+        for code, label in i18n.available_languages():
+            # Language names stay in their own language — a user looking for
+            # "English" should not have to recognise "Engleză" first.
+            action = QAction(label, self, checkable=True)
+            action.setChecked(code == active_lang)
+            action.triggered.connect(lambda _checked, c=code: self._on_language_changed(c))
+            lang_group.addAction(action)
+            lang_menu.addAction(action)
+
+    def _on_theme_changed(self, code: str) -> None:
+        from PySide6.QtWidgets import QApplication
+        from .. import settings
+
+        theme.apply_theme(QApplication.instance(), code)
+        settings.set_theme(code)
+        # The few inline-styled labels carry their colour explicitly, so they
+        # need repainting with the new theme's muted tone.
+        self._restyle_muted_labels()
+
+    def _on_language_changed(self, code: str) -> None:
+        from .. import i18n, settings
+
+        if code == i18n.get_language():
+            return
+        i18n.set_language(code)
+        settings.set_language(code)
+        self._retranslate()
+
+    def _retranslate(self) -> None:
+        """Rebuild the window in the new language, preserving what's on screen.
+
+        Qt has no way to relabel a built ``QFormLayout``, so the form is rebuilt.
+        The teacher's answers and the current result are carried across — losing
+        a half-filled questionnaire to a menu click would be its own bug.
+        """
+        answers = self._collect_answers()
+        self.setWindowTitle(tr(config.APP_TITLE))
+        self.menuBar().clear()
+        self._question_widgets = {}
+        self._build_menu()
+        self._build_ui()
+        self._restore_answers(answers)
+        if self.current_result is not None:
+            self.results.setHtml(render_result_html(self.current_result))
+            for btn in (self.btn_plan, self.btn_save, self.btn_pdf):
+                btn.setEnabled(True)
+        if self.current_plan_text:
+            self.plan_text.setMarkdown(self.current_plan_text)
+        self._refresh_llm_status()
+
+    def _restyle_muted_labels(self) -> None:
+        muted = f"color:{theme.muted_color()};"
+        for widget in (getattr(self, "lbl_stress", None),
+                       getattr(self, "plan_source", None)):
+            if widget is not None:
+                widget.setStyleSheet(muted)
+        timestamp = self._question_widgets.get("timestamp")
+        if isinstance(timestamp, QLabel):
+            timestamp.setStyleSheet(muted)
+
     def _make_question_widget(self, item: config.QuestionnaireItem) -> QWidget:
+        from ..i18n import tr_value
+
         if item.key == "timestamp":
             label = QLabel(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-            label.setStyleSheet("color:#555;")
+            label.setStyleSheet(f"color:{theme.muted_color()};")
             return label
         if item.kind == "date":
             widget = QDateEdit()
@@ -264,7 +353,10 @@ class MainWindow(QMainWindow):
             return widget
         if item.kind == "categorical":
             widget = QComboBox()
-            widget.addItems(list(item.categories))
+            # Display is translated; the *stored* value stays Romanian because it
+            # is the model's training vocabulary. Readers use ``currentData()``.
+            for category in item.categories:
+                widget.addItem(tr_value(category), category)
             return widget
         if item.kind == "multiline":
             widget = QPlainTextEdit()
@@ -288,10 +380,16 @@ class MainWindow(QMainWindow):
         widget.setValue(int(item.default or 0))
         return widget
 
+    @staticmethod
+    def _combo_value(widget: QComboBox) -> str:
+        """The Romanian model value behind the (possibly translated) label."""
+        data = widget.currentData()
+        return str(data) if data is not None else widget.currentText().strip()
+
     def _question_value(self, key: str):
         widget = self._question_widgets[key]
         if isinstance(widget, QComboBox):
-            return widget.currentText()
+            return self._combo_value(widget)
         if isinstance(widget, QDateEdit):
             return widget.date().toString("yyyy-MM-dd")
         if isinstance(widget, QDoubleSpinBox):
@@ -313,7 +411,7 @@ class MainWindow(QMainWindow):
         form_widget = QWidget()
         form_layout = QVBoxLayout(form_widget)
 
-        identity = QGroupBox("Date de identificare (rămân doar local)")
+        identity = QGroupBox(tr("Date de identificare (rămân doar local)"))
         idl = QFormLayout(identity)
         identity_fields = {
             "full_name",
@@ -326,30 +424,34 @@ class MainWindow(QMainWindow):
                 continue
             widget = self._make_question_widget(item)
             self._question_widgets[item.key] = widget
-            idl.addRow(item.label, widget)
+            idl.addRow(tr(item.label), widget)
         timestamp = next(q for q in config.QUESTIONNAIRE_FIELDS if q.key == "timestamp")
-        idl.addRow(timestamp.label, self._make_question_widget(timestamp))
+        stamp_widget = self._make_question_widget(timestamp)
+        self._question_widgets[timestamp.key] = stamp_widget
+        idl.addRow(tr(timestamp.label), stamp_widget)
         form_layout.addWidget(identity)
 
-        questionnaire_box = QGroupBox("Chestionar complet")
+        questionnaire_box = QGroupBox(tr("Chestionar complet"))
         ql = QFormLayout(questionnaire_box)
         for item in config.QUESTIONNAIRE_FIELDS:
             if item.key in identity_fields or item.key == "timestamp":
                 continue
             widget = self._make_question_widget(item)
-            widget.setToolTip(item.help_text)
+            widget.setToolTip(tr(item.help_text))
             self._question_widgets[item.key] = widget
-            ql.addRow(item.label, widget)
-        self.lbl_stress = QLabel("Stres emoțional (NLP): — (se calculează la evaluare)")
-        self.lbl_stress.setStyleSheet("color:#555;")
+            ql.addRow(tr(item.label), widget)
+        self.lbl_stress = QLabel(
+            tr("Stres emoțional (NLP): — (se calculează la evaluare)")
+        )
+        self.lbl_stress.setStyleSheet(f"color:{theme.muted_color()};")
         ql.addRow(self.lbl_stress)
         form_layout.addWidget(questionnaire_box)
 
         # Buttons
         btn_row = QHBoxLayout()
-        self.btn_demo = QPushButton("Completează exemplu")
+        self.btn_demo = QPushButton(tr("Completează exemplu"))
         self.btn_demo.clicked.connect(self._fill_demo)
-        self.btn_eval = QPushButton("Evaluează riscul")
+        self.btn_eval = QPushButton(tr("Evaluează riscul"))
         self.btn_eval.setStyleSheet("font-weight:bold;")
         self.btn_eval.clicked.connect(self._on_evaluate)
         btn_row.addWidget(self.btn_demo)
@@ -357,10 +459,10 @@ class MainWindow(QMainWindow):
         form_layout.addLayout(btn_row)
 
         btn_row2 = QHBoxLayout()
-        self.btn_plan = QPushButton("Generează planul de intervenție")
+        self.btn_plan = QPushButton(tr("Generează planul de intervenție"))
         self.btn_plan.setEnabled(False)
         self.btn_plan.clicked.connect(self._on_generate_plan)
-        self.btn_save = QPushButton("Salvează evaluarea")
+        self.btn_save = QPushButton(tr("Salvează evaluarea"))
         self.btn_save.setEnabled(False)
         self.btn_save.clicked.connect(self._on_save)
         btn_row2.addWidget(self.btn_plan)
@@ -368,7 +470,7 @@ class MainWindow(QMainWindow):
         form_layout.addLayout(btn_row2)
 
         btn_row3 = QHBoxLayout()
-        self.btn_pdf = QPushButton("Salvează raport PDF")
+        self.btn_pdf = QPushButton(tr("Salvează raport PDF"))
         self.btn_pdf.setEnabled(False)
         self.btn_pdf.clicked.connect(self._on_export_pdf)
         btn_row3.addWidget(self.btn_pdf)
@@ -385,16 +487,18 @@ class MainWindow(QMainWindow):
         right = QWidget()
         right_layout = QVBoxLayout(right)
         self.results = QTextBrowser()
+        self.results.setStyleSheet(theme.document_qss())
         self.results.setHtml(placeholder_html())
         right_layout.addWidget(self.results, stretch=3)
 
-        plan_box = QGroupBox("Plan de intervenție")
+        plan_box = QGroupBox(tr("Plan de intervenție"))
         plan_layout = QVBoxLayout(plan_box)
-        self.plan_source = QLabel("Sursă: —")
-        self.plan_source.setStyleSheet("color:#555;")
+        self.plan_source = QLabel(tr("Sursă: —"))
+        self.plan_source.setStyleSheet(f"color:{theme.muted_color()};")
         # QTextBrowser renders the plan's markdown (headings, bold, bullets);
         # the raw markdown is kept in ``self.current_plan_text`` for the PDF.
         self.plan_text = QTextBrowser()
+        self.plan_text.setStyleSheet(theme.document_qss())
         plan_layout.addWidget(self.plan_source)
         plan_layout.addWidget(self.plan_text)
         right_layout.addWidget(plan_box, stretch=2)
@@ -404,7 +508,7 @@ class MainWindow(QMainWindow):
         splitter.setStretchFactor(1, 1)
         self.setCentralWidget(splitter)
 
-        self.statusBar().showMessage("Gata. Modelul se încarcă la prima evaluare.")
+        self.statusBar().showMessage(tr("Gata. Modelul se încarcă la prima evaluare."))
 
     # --- helpers -----------------------------------------------------------
     def _refresh_llm_status(self) -> None:
@@ -412,25 +516,37 @@ class MainWindow(QMainWindow):
         provider = config.get_provider(settings.get_active_provider())
         source = keystore.key_source(provider.id)
         if source == "env":
-            mode = f"cloud ({provider.label}) — cheie din variabila de mediu"
+            mode = trf("cloud ({provider}) — cheie din variabila de mediu",
+                       provider=provider.label)
         elif source == "stored":
-            mode = f"cloud ({provider.label}) — cheie salvată"
+            mode = trf("cloud ({provider}) — cheie salvată", provider=provider.label)
         else:
-            mode = "local (offline)"
+            mode = tr("local (offline)")
         kb = settings.get_knowledge()
-        kb_note = f" • bază de cunoștințe: {kb['filename']}" if kb else ""
-        self.plan_source.setText(f"Sursă plan: se va folosi modul {mode}.{kb_note}")
+        kb_note = (
+            trf(" • bază de cunoștințe: {filename}", filename=kb["filename"])
+            if kb else ""
+        )
+        self.plan_source.setText(
+            trf("Sursă plan: se va folosi modul {mode}.{kb}", mode=mode, kb=kb_note)
+        )
 
     def _on_settings(self) -> None:
         from .settings_dialog import SettingsDialog
         SettingsDialog(self).exec()
         self._refresh_llm_status()
 
-    def _fill_demo(self) -> None:
-        for key, val in _DEMO_ANSWERS.items():
-            w = self._question_widgets[key]
+    def _restore_answers(self, answers: dict[str, object]) -> None:
+        """Write answers back into the form widgets (used by demo + relabel)."""
+        for key, val in answers.items():
+            w = self._question_widgets.get(key)
+            if w is None:
+                continue
             if isinstance(w, QComboBox):
-                w.setCurrentText(str(val))
+                # Match on the stored Romanian value, not the displayed label,
+                # so restoring survives a language switch.
+                index = w.findData(str(val))
+                w.setCurrentIndex(index if index >= 0 else 0)
             elif isinstance(w, QDateEdit):
                 qdate = QDate.fromString(str(val), "yyyy-MM-dd")
                 w.setDate(qdate if qdate.isValid() else QDate.currentDate())
@@ -443,11 +559,14 @@ class MainWindow(QMainWindow):
             elif isinstance(w, QSpinBox):
                 w.setValue(int(val))
 
+    def _fill_demo(self) -> None:
+        self._restore_answers(_DEMO_ANSWERS)
+
     def _collect_answers(self) -> dict[str, object]:
         answers: dict[str, object] = {"timestamp": datetime.now().isoformat(timespec="seconds")}
         for key, widget in self._question_widgets.items():
             if isinstance(widget, QComboBox):
-                answers[key] = widget.currentText().strip()
+                answers[key] = self._combo_value(widget)
             elif isinstance(widget, QDateEdit):
                 answers[key] = widget.date().toString("yyyy-MM-dd")
             elif isinstance(widget, QLineEdit):
@@ -500,8 +619,8 @@ class MainWindow(QMainWindow):
         self.current_case = self._collect_case()
         self.current_plan_text = ""      # a new evaluation invalidates the old plan
         self.plan_text.clear()
-        self.plan_source.setText("Sursă: —")
-        self._set_busy(True, "Se calculează scorul (model XGBoost + SHAP)…")
+        self.plan_source.setText(tr("Sursă: —"))
+        self._set_busy(True, tr("Se calculează scorul (model XGBoost + SHAP)…"))
         self.btn_plan.setEnabled(False)
         self.btn_save.setEnabled(False)
         self.btn_pdf.setEnabled(False)
@@ -510,20 +629,21 @@ class MainWindow(QMainWindow):
     def _on_eval_done(self, result: AssessmentResult) -> None:
         self.current_result = result
         self.lbl_stress.setText(
-            f"Stres emoțional (NLP): {result.nlp.stress_score:.2f} / 2.0  "
-            f"— {result.nlp.label}"
+            trf("Stres emoțional (NLP): {score:.2f} / 2.0  — {label}",
+                score=result.nlp.stress_score, label=result.nlp.label)
         )
         self.results.setHtml(render_result_html(result))
         self.btn_plan.setEnabled(True)
         self.btn_save.setEnabled(True)
         self.btn_pdf.setEnabled(True)
-        self._set_busy(False, f"Evaluare completă. Model: {result.evaluation.model_version}")
+        self._set_busy(False, trf("Evaluare completă. Model: {version}",
+                                  version=result.evaluation.model_version))
 
     def _on_generate_plan(self) -> None:
         if not self.current_result:
             return
-        self._set_busy(True, "Se generează planul de intervenție…")
-        self.plan_text.setPlainText("Se generează…")
+        self._set_busy(True, tr("Se generează planul de intervenție…"))
+        self.plan_text.setPlainText(tr("Se generează…"))
         self._start_worker(
             self._generate_plan_measured, self._on_plan_done,
             self.current_result.evaluation,
@@ -553,8 +673,8 @@ class MainWindow(QMainWindow):
         text, source = payload
         self.current_plan_text = text
         self.plan_text.setMarkdown(text)
-        self.plan_source.setText(f"Sursă plan: {source}")
-        self._set_busy(False, "Plan generat.")
+        self.plan_source.setText(trf("Sursă plan: {source}", source=source))
+        self._set_busy(False, tr("Plan generat."))
 
     def _on_save(self) -> None:
         if not (self.current_case and self.current_result):
@@ -564,7 +684,8 @@ class MainWindow(QMainWindow):
                 self.current_case, self.current_result.evaluation
             )
             self.statusBar().showMessage(
-                f"Salvat în baza de date locală (evaluare #{eval_id})."
+                trf("Salvat în baza de date locală (evaluare #{eval_id}).",
+                    eval_id=eval_id)
             )
         except Exception as exc:
             self._on_worker_error(f"{type(exc).__name__}: {exc}")
@@ -577,7 +698,7 @@ class MainWindow(QMainWindow):
             safe_name = "elev"
         default_path = f"raport_{safe_name}.pdf"
         path, _ = QFileDialog.getSaveFileName(
-            self, "Salvează raportul ca PDF", default_path, "Fișier PDF (*.pdf)"
+            self, tr("Salvează raportul ca PDF"), default_path, tr("Fișier PDF (*.pdf)")
         )
         if not path:
             return
@@ -588,7 +709,7 @@ class MainWindow(QMainWindow):
                 self.current_case, self.current_result, self.current_plan_text
             )
             export_report_pdf(path, html)
-            self.statusBar().showMessage(f"Raport PDF salvat: {path}")
+            self.statusBar().showMessage(trf("Raport PDF salvat: {path}", path=path))
         except Exception as exc:
             self._on_worker_error(f"{type(exc).__name__}: {exc}")
             return
@@ -597,7 +718,7 @@ class MainWindow(QMainWindow):
         # report, off the UI thread so the window stays responsive.
         import os
         report_dir = os.path.dirname(path) or "."
-        self._set_busy(True, "Se generează graficele metricilor…")
+        self._set_busy(True, tr("Se generează graficele metricilor…"))
 
         def work(directory=report_dir):
             from ..model_report import save_metric_images
@@ -610,9 +731,9 @@ class MainWindow(QMainWindow):
     def _on_import_excel(self) -> None:
         xlsx_path, _ = QFileDialog.getOpenFileName(
             self,
-            "Alege fișierul cu răspunsuri (.xlsx exportat din Google Forms)",
+            tr("Alege fișierul cu răspunsuri (.xlsx exportat din Google Forms)"),
             "",
-            "Fișiere Excel (*.xlsx *.xlsm)",
+            tr("Fișiere Excel (*.xlsx *.xlsm)"),
         )
         if not xlsx_path:
             return
@@ -623,13 +744,17 @@ class MainWindow(QMainWindow):
         try:
             cases = load_cases_from_excel(xlsx_path)
         except ExcelImportError as exc:
-            QMessageBox.critical(self, "Import eșuat", str(exc))
+            QMessageBox.critical(self, tr("Import eșuat"), str(exc))
             return
         except Exception as exc:
-            QMessageBox.critical(self, "Import eșuat", f"{type(exc).__name__}: {exc}")
+            QMessageBox.critical(
+                self, tr("Import eșuat"), f"{type(exc).__name__}: {exc}"
+            )
             return
         if not cases:
-            QMessageBox.warning(self, "Import", "Nu s-au găsit elevi în fișier.")
+            QMessageBox.warning(
+                self, tr("Import"), tr("Nu s-au găsit elevi în fișier.")
+            )
             return
 
         # Plans use the configured cloud provider when a key exists (same as the
@@ -638,29 +763,33 @@ class MainWindow(QMainWindow):
         provider = config.get_provider(settings.get_active_provider())
         uses_cloud = bool(keystore.resolve_api_key(provider.id))
         if uses_cloud:
-            note = (
-                f"Se vor evalua {len(cases)} elevi, iar planurile de intervenție "
-                f"vor fi generate prin {provider.label} (cu revenire la planul "
+            note = trf(
+                "Se vor evalua {count} elevi, iar planurile de intervenție "
+                "vor fi generate prin {provider} (cu revenire la planul "
                 "local dacă un apel eșuează).\n\n"
                 "Fiecare plan necesită un apel în cloud, deci procesul poate dura "
-                "câteva minute pentru o clasă întreagă. Continuați?"
+                "câteva minute pentru o clasă întreagă. Continuați?",
+                count=len(cases), provider=provider.label,
             )
         else:
-            note = (
-                f"Se vor evalua {len(cases)} elevi, iar planurile vor fi generate "
-                "local (offline). Continuați?"
+            note = trf(
+                "Se vor evalua {count} elevi, iar planurile vor fi generate "
+                "local (offline). Continuați?",
+                count=len(cases),
             )
-        if QMessageBox.question(self, "Confirmare import", note) != QMessageBox.Yes:
+        if QMessageBox.question(
+            self, tr("Confirmare import"), note
+        ) != QMessageBox.Yes:
             return
 
         out_dir = QFileDialog.getExistingDirectory(
-            self, "Alege folderul unde se salvează rapoartele PDF"
+            self, tr("Alege folderul unde se salvează rapoartele PDF")
         )
         if not out_dir:
             return
 
         import os
-        self._set_busy(True, "Se importă și se evaluează elevii…")
+        self._set_busy(True, tr("Se importă și se evaluează elevii…"))
         worker = BatchImportWorker(
             self.service, cases, out_dir, source_name=os.path.basename(xlsx_path)
         )
@@ -675,7 +804,9 @@ class MainWindow(QMainWindow):
 
     def _on_batch_progress(self, done: int, total: int, phase: str) -> None:
         if total:
-            self.statusBar().showMessage(f"{phase} ({done}/{total})")
+            self.statusBar().showMessage(
+                trf("{phase} ({done}/{total})", phase=phase, done=done, total=total)
+            )
         else:
             self.statusBar().showMessage(phase)
 
@@ -687,48 +818,55 @@ class MainWindow(QMainWindow):
             from ..metrics import fmt_cost, fmt_seconds, get_store
             get_store().add(run)
         self._set_busy(
-            False, f"Import complet: {count} rapoarte + raport general în {out_dir}"
+            False,
+            trf("Import complet: {count} rapoarte + raport general în {out_dir}",
+                count=count, out_dir=out_dir),
         )
         box = QMessageBox(self)
         box.setIcon(QMessageBox.Information)
-        box.setWindowTitle("Import finalizat")
+        box.setWindowTitle(tr("Import finalizat"))
         metrics_dir = payload.get("metrics_dir")
-        text = (
-            f"Au fost evaluați {count} elevi.\n\n"
-            f"S-au generat {count} rapoarte individuale și un raport general "
-            f"(raport_general.pdf) în:\n{out_dir}"
+        text = trf(
+            "Au fost evaluați {count} elevi.\n\n"
+            "S-au generat {count} rapoarte individuale și un raport general "
+            "(raport_general.pdf) în:\n{out_dir}",
+            count=count, out_dir=out_dir,
         )
         if metrics_dir:
-            text += (
+            text += trf(
                 "\n\nGraficele de evaluare a modelului (matrice de confuzie, ROC, "
                 "precizie-recall, calibrare, SHAP, sumar) au fost salvate în:\n"
-                f"{metrics_dir}"
+                "{metrics_dir}",
+                metrics_dir=metrics_dir,
             )
         if run is not None:
             priced = run.pricing_available
             cost = fmt_cost(run.total_cost if priced else None)
             per_report = fmt_cost(run.cost_per_report if priced else None)
             per_cloud_call = fmt_cost(run.cost_per_cloud_call if priced else None)
-            text += (
+            text += trf(
                 "\n\nPerformanță:\n"
-                f"• Apeluri cloud: {run.cloud_calls} din {run.report_count}\n"
-                f"• Latență totală: {fmt_seconds(run.total_latency_s)} "
-                f"({fmt_seconds(run.avg_latency_s)} / raport)\n"
-                f"• Cost total: {cost}\n"
-                f"• Cost / raport (toate): {per_report}\n"
-                f"• Cost / apel cloud reușit: {per_cloud_call}\n"
-                "Detalii complete în meniul „Performanță”."
+                "• Apeluri cloud: {cloud_calls} din {report_count}\n"
+                "• Latență totală: {total_latency} ({avg_latency} / raport)\n"
+                "• Cost total: {cost}\n"
+                "• Cost / raport (toate): {per_report}\n"
+                "• Cost / apel cloud reușit: {per_cloud_call}\n"
+                "Detalii complete în meniul „Performanță”.",
+                cloud_calls=run.cloud_calls, report_count=run.report_count,
+                total_latency=fmt_seconds(run.total_latency_s),
+                avg_latency=fmt_seconds(run.avg_latency_s),
+                cost=cost, per_report=per_report, per_cloud_call=per_cloud_call,
             )
         box.setText(text)
-        open_btn = box.addButton("Deschide folderul", QMessageBox.AcceptRole)
-        box.addButton("Închide", QMessageBox.RejectRole)
+        open_btn = box.addButton(tr("Deschide folderul"), QMessageBox.AcceptRole)
+        box.addButton(tr("Închide"), QMessageBox.RejectRole)
         box.exec()
         if box.clickedButton() is open_btn:
             self._open_folder(out_dir)
 
     def _on_batch_error(self, message: str) -> None:
-        self._set_busy(False, "Import eșuat.")
-        QMessageBox.critical(self, "Import eșuat", message)
+        self._set_busy(False, tr("Import eșuat."))
+        QMessageBox.critical(self, tr("Import eșuat"), message)
 
     @staticmethod
     def _open_folder(path: str) -> None:
@@ -738,24 +876,26 @@ class MainWindow(QMainWindow):
 
     def _on_retrain(self) -> None:
         if QMessageBox.question(
-            self, "Reantrenare",
-            "Reantrenezi modelul pe date sintetice? (câteva secunde)",
+            self, tr("Reantrenare"),
+            tr("Reantrenezi modelul pe date sintetice? (câteva secunde)"),
         ) != QMessageBox.Yes:
             return
-        self._set_busy(True, "Se reantrenează modelul…")
+        self._set_busy(True, tr("Se reantrenează modelul…"))
         self._start_worker(self.service.retrain, self._on_retrained)
 
     def _on_retrained(self, model) -> None:
-        self._set_busy(False, f"Model reantrenat: {model.version}")
+        self._set_busy(False, trf("Model reantrenat: {version}", version=model.version))
 
     def _on_metrics(self) -> None:
-        self._set_busy(True, "Se încarcă metricile modelului…")
+        self._set_busy(True, tr("Se încarcă metricile modelului…"))
         self._start_worker(lambda: self.service.model_metrics, self._show_metrics)
 
     def _show_metrics(self, metrics) -> None:
         self._set_busy(False, "")
         if not metrics:
-            QMessageBox.information(self, "Metrici model", "Metrici indisponibile.")
+            QMessageBox.information(
+                self, tr("Metrici model"), tr("Metrici indisponibile.")
+            )
             return
 
         def num(key: str) -> str:
@@ -775,47 +915,51 @@ class MainWindow(QMainWindow):
             return "—" if m != m else f"{m:.3f} ± {s:.3f}"
 
         lines = [
-            f"Versiune: {self.service.model_version}",
+            f"{tr('Versiune')}: {self.service.model_version}",
             "",
-            "— Metrici pe setul de test (echilibru real) —",
-            f"Acuratețe: {num('accuracy')}   Acuratețe echilibrată: {num('balanced_accuracy')}",
+            tr("— Metrici pe setul de test (echilibru real) —"),
+            f"{tr('Acuratețe')}: {num('accuracy')}   "
+            f"{tr('Acuratețe echilibrată')}: {num('balanced_accuracy')}",
             f"ROC-AUC: {num('roc_auc')}   PR-AUC: {num('pr_auc')}",
-            f"Precizie (abandon): {num('precision_dropout')}   "
-            f"Recall/sensibilitate: {num('recall_dropout')}",
-            f"Specificitate: {num('specificity')}   F1 (abandon): {num('f1_dropout')}",
+            f"{tr('Precizie (abandon)')}: {num('precision_dropout')}   "
+            f"{tr('Recall/sensibilitate')}: {num('recall_dropout')}",
+            f"{tr('Specificitate')}: {num('specificity')}   "
+            f"{tr('F1 (abandon)')}: {num('f1_dropout')}",
             f"G-mean: {num('g_mean')}   MCC: {num('mcc')}   Brier (↓): {num('brier')}",
-            f"Matrice confuzie [[TN, FP], [FN, TP]]: {metrics.get('confusion') or '—'}",
+            f"{tr('Matrice confuzie [[TN, FP], [FN, TP]]')}: "
+            f"{metrics.get('confusion') or '—'}",
         ]
         if metrics.get("cv_folds"):
             folds = int(metrics["cv_folds"])
             lines += [
                 "",
-                f"— Validare încrucișată stratificată ({folds}-fold, SMOTE-NC în fold) —",
-                f"Acuratețe: {pm('cv_accuracy_mean', 'cv_accuracy_std')}   "
+                trf("— Validare încrucișată stratificată ({folds}-fold, "
+                    "SMOTE-NC în fold) —", folds=folds),
+                f"{tr('Acuratețe')}: {pm('cv_accuracy_mean', 'cv_accuracy_std')}   "
                 f"ROC-AUC: {pm('cv_roc_auc_mean', 'cv_roc_auc_std')}",
                 f"PR-AUC: {pm('cv_pr_auc_mean', 'cv_pr_auc_std')}   "
                 f"F1: {pm('cv_f1_mean', 'cv_f1_std')}",
             ]
         lines += [
             "",
-            f"Echilibrare înainte SMOTE-NC: {metrics.get('balance_before')}",
-            f"Echilibrare după SMOTE-NC: {metrics.get('balance_after')}",
+            f"{tr('Echilibrare înainte SMOTE-NC')}: {metrics.get('balance_before')}",
+            f"{tr('Echilibrare după SMOTE-NC')}: {metrics.get('balance_after')}",
             "",
             metrics.get("report_text", ""),
         ]
         box = QMessageBox(self)
-        box.setWindowTitle("Metrici model")
+        box.setWindowTitle(tr("Metrici model"))
         box.setText("\n".join(lines))
         box.setFont(QFont("Consolas", 9))
         box.exec()
 
     def _on_save_metric_charts(self) -> None:
         out_dir = QFileDialog.getExistingDirectory(
-            self, "Alege folderul unde se salvează graficele metricilor"
+            self, tr("Alege folderul unde se salvează graficele metricilor")
         )
         if not out_dir:
             return
-        self._set_busy(True, "Se generează graficele metricilor…")
+        self._set_busy(True, tr("Se generează graficele metricilor…"))
 
         def work(directory=out_dir):
             from ..model_report import save_metric_images
@@ -826,13 +970,14 @@ class MainWindow(QMainWindow):
 
     def _on_metric_charts_done(self, payload) -> None:
         target, count = payload
-        self._set_busy(False, "Grafice metrici salvate.")
+        self._set_busy(False, tr("Grafice metrici salvate."))
         box = QMessageBox(self)
         box.setIcon(QMessageBox.Information)
-        box.setWindowTitle("Grafice metrici")
-        box.setText(f"S-au salvat {count} grafice cu metrici în:\n{target}")
-        open_btn = box.addButton("Deschide folderul", QMessageBox.AcceptRole)
-        box.addButton("Închide", QMessageBox.RejectRole)
+        box.setWindowTitle(tr("Grafice metrici"))
+        box.setText(trf("S-au salvat {count} grafice cu metrici în:\n{target}",
+                        count=count, target=target))
+        open_btn = box.addButton(tr("Deschide folderul"), QMessageBox.AcceptRole)
+        box.addButton(tr("Închide"), QMessageBox.RejectRole)
         box.exec()
         if box.clickedButton() is open_btn:
             self._open_folder(target)
@@ -841,7 +986,9 @@ class MainWindow(QMainWindow):
         """Quiet completion for charts auto-saved next to a single PDF report."""
         target, count = payload
         self._set_busy(
-            False, f"Raport salvat + {count} grafice metrici în „{target}”."
+            False,
+            trf("Raport salvat + {count} grafice metrici în „{target}”.",
+                count=count, target=target),
         )
 
     def _on_perf_metrics(self) -> None:
@@ -850,17 +997,19 @@ class MainWindow(QMainWindow):
 
     def _on_about(self) -> None:
         QMessageBox.about(
-            self, "Despre",
-            f"{config.APP_TITLE}\nv{config.APP_VERSION}\n\n"
-            "Asistent predictiv pentru identificarea timpurie („Ziua 14”) a "
-            "elevilor cu risc de abandon școlar.\n\n"
-            "Proof-of-concept: model XGBoost real + SMOTE-NC + explicații SHAP "
-            "autentice, cu plan de intervenție generat local sau prin Claude.\n\n"
-            "Datele elevilor rămân local; către cloud se trimite doar scorul "
-            "anonimizat și explicația SHAP.\n\n"
-            "© Ramona Richițeanu — concept și metodologie de cercetare.",
+            self, tr("Despre"),
+            f"{tr(config.APP_TITLE)}\nv{config.APP_VERSION}\n\n"
+            + tr(
+                "Asistent predictiv pentru identificarea timpurie („Ziua 14”) a "
+                "elevilor cu risc de abandon școlar.\n\n"
+                "Proof-of-concept: model XGBoost real + SMOTE-NC + explicații SHAP "
+                "autentice, cu plan de intervenție generat local sau prin Claude.\n\n"
+                "Datele elevilor rămân local; către cloud se trimite doar scorul "
+                "anonimizat și explicația SHAP.\n\n"
+                "© Ramona Richițeanu — concept și metodologie de cercetare."
+            ),
         )
 
     def _on_worker_error(self, message: str) -> None:
-        self._set_busy(False, "Eroare.")
-        QMessageBox.critical(self, "Eroare", message)
+        self._set_busy(False, tr("Eroare."))
+        QMessageBox.critical(self, tr("Eroare"), message)

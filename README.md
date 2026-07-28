@@ -260,6 +260,41 @@ Because LIME's weights are not additive, they must never be substituted into the
 
 **Local fidelity is always reported.** A local surrogate can fit badly, so every LIME profile carries its R² over the perturbed neighbourhood plus the surrogate's own prediction next to the model's real probability. A weak fit is shown *labelled as weak* rather than silently trusted — on a representative high-risk case the surrogate reached R² = 0.41 ("moderată") and predicted 0.853 against the model's actual 0.948, which is exactly the kind of divergence a teacher should see before acting on the rule list.
 
+## Interface: theme and language
+
+Both live under the **Aspect / Appearance** menu and persist to `settings.json`.
+
+### Theme
+
+| Option | Behaviour |
+|---|---|
+| **Sistem** (default) | Inherits the OS appearance — the app's original behaviour |
+| **Luminoasă (alb)** | Explicit white palette, regardless of an OS dark mode |
+| **Întunecată** | Dark palette |
+
+Themes apply through Qt's **Fusion** style plus an explicit `QPalette` ([app/ui/theme.py](app/ui/theme.py)). Fusion is the only Qt style that honours a custom palette across every widget class; the native Windows style ignores it for several. Switching is live — no restart.
+
+Two consequences worth knowing:
+
+- **Document panes stay white in every theme.** The report preview, the plan pane and the metrics viewer render the same HTML that goes into the PDF, whose colours are calibrated for paper (`report._INK` is near-black). Letting them inherit a dark palette would put near-black text on a near-black background, so `theme.document_qss()` pins them light — the convention PDF readers use in dark mode.
+- **This fixed a latent bug.** The few hard-coded `color:#555` labels were already unreadable for anyone running Windows in dark mode, since the app previously shipped no palette at all. Muted text now comes from `theme.muted_color()`.
+
+### Language
+
+Romanian (default) and English. The app was written Romanian-first, so the **source string is the catalog key** ([app/i18n.py](app/i18n.py)): `tr()` looks the Romanian text up and returns it unchanged when there is no entry, so a missing translation degrades to Romanian rather than to a blank label. Switching rebuilds the window in place and carries the teacher's answers across — a menu click never discards a half-filled questionnaire.
+
+**The model's category vocabulary is never translated.** Values like `Feminin` or `Ambii părinți` are the literal strings the classifier was trained on (`scoring_engine._FAMILY_RISK` and friends), so combo boxes display `tr_value(category)` while storing the Romanian value as `userData`; readers use `currentData()`. Translating the stored value instead of the label would silently change what the model is fed, and would break comparability between reports exported before and after a switch. [tests/test_i18n_theme.py](tests/test_i18n_theme.py) pins that contract, and also asserts that every `tr()`/`trf()` call site has a catalog entry — the check that caught a missing string during implementation.
+
+Scope of the English support:
+
+| Surface | Status |
+|---|---|
+| Menus, dialogs, buttons, status messages, questionnaire labels | Translated |
+| Model-metrics and performance-metrics views | Translated |
+| Cloud-generated intervention plan | Written in English — `llm_client._ENGLISH_OVERRIDE` overrides the prompt's inline Romanian-language clause and restates the required section headings |
+| **Offline fallback plan** | **Still Romanian.** `llm_client._INTERVENTIONS` is ~12 KB of pedagogical prescription text; a mistranslated intervention is worse than an untranslated one, so it was left for a domain review rather than machine-translated |
+| **PDF report chrome** | **Still Romanian** ([app/ui/report.py](app/ui/report.py)) — the report is a separate, larger surface |
+
 ## Privacy & data handling
 
 - All student data is stored locally in a SQLite database (see the implementation-status note — encryption at rest is not yet implemented).
