@@ -88,19 +88,15 @@ def test_split_ignores_a_heading_with_no_content_under_it():
 
 # --- assembled report -------------------------------------------------------
 @pytest.fixture(scope="module")
-def report_html(trained_model):
-    """A full report for a real workbook case, rendered once."""
+def report_html(trained_model, sample_workbook):
+    """A full report for a workbook-imported case, rendered once."""
     from PySide6.QtWidgets import QApplication
     from app.excel_import import load_cases_from_excel
     from app.service import AssessmentService
     from app.ui.report import build_report_html
 
     QApplication.instance() or QApplication([])   # QTextDocument needs an app
-    path = (
-        "tests/Formular Test pentru Identificarea Riscului de Abandon Școlar "
-        "(răspunsuri).xlsx"
-    )
-    case = load_cases_from_excel(path)[0]
+    case = load_cases_from_excel(sample_workbook)[0]
     service = AssessmentService()
     service._model = trained_model[0]
     result = service.assess(case)
