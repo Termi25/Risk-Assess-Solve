@@ -49,7 +49,9 @@ class FeatureAttribution:
 
     @property
     def direction(self) -> str:
-        return "crește riscul" if self.shap_value >= 0 else "reduce riscul"
+        from .i18n import tr
+
+        return tr("crește riscul") if self.shap_value >= 0 else tr("reduce riscul")
 
     @property
     def points(self) -> float:
@@ -81,7 +83,9 @@ class LimeCondition:
 
     @property
     def direction(self) -> str:
-        return "crește riscul" if self.weight >= 0 else "reduce riscul"
+        from .i18n import tr
+
+        return tr("crește riscul") if self.weight >= 0 else tr("reduce riscul")
 
     @property
     def influence(self) -> float:
@@ -114,11 +118,15 @@ class LimeExplanation:
 
     @property
     def fidelity_label(self) -> str:
+        # Display text, so it follows the interface language; the band itself is
+        # decided by the R² thresholds, which are language-independent.
+        from .i18n import tr
+
         if self.fidelity_r2 >= 0.70:
-            return "bună"
+            return tr("bună")
         if self.fidelity_r2 >= 0.40:
-            return "moderată"
-        return "slabă"
+            return tr("moderată")
+        return tr("slabă")
 
     def top_conditions(self, n: int = 6) -> list["LimeCondition"]:
         return sorted(self.conditions, key=lambda c: abs(c.weight), reverse=True)[:n]

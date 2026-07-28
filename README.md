@@ -291,9 +291,14 @@ Scope of the English support:
 |---|---|
 | Menus, dialogs, buttons, status messages, questionnaire labels | Translated |
 | Model-metrics and performance-metrics views | Translated |
+| Result panel + PDF report ([app/ui/report.py](app/ui/report.py)) | Translated — risk profile, SHAP, sub-scores, LIME, NLP, plan and success-indicator sections, plus the group/summary report |
+| Risk bands, urgency levels, feature labels, sub-score domains, critical indicators, LIME fidelity bands | Translated at display time (`tr_band`, `tr`, `tr_value`) |
 | Cloud-generated intervention plan | Written in English — `llm_client._ENGLISH_OVERRIDE` overrides the prompt's inline Romanian-language clause and restates the required section headings |
 | **Offline fallback plan** | **Still Romanian.** `llm_client._INTERVENTIONS` is ~12 KB of pedagogical prescription text; a mistranslated intervention is worse than an untranslated one, so it was left for a domain review rather than machine-translated |
-| **PDF report chrome** | **Still Romanian** ([app/ui/report.py](app/ui/report.py)) — the report is a separate, larger surface |
+
+Because the plan's language follows the interface, `report._SUCCESS_HEADING_RE` matches **both** `"Indicatori de succes"` and `"Success indicators"`. That regex lifts the success-indicator block out of the plan body so the dedicated panel does not print it twice; a Romanian-only pattern would have silently reintroduced that duplication for every English plan.
+
+Values reaching the model are still never translated — a SHAP row reads `Attitude towards school` / `value: No` in English while the classifier is fed `Atitudine_Scoala = "Nu"`.
 
 ## Privacy & data handling
 

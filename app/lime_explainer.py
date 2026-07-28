@@ -59,6 +59,12 @@ BACKGROUND_SAMPLES = 800
 
 _CLASS_NAMES = ("Menținere", "Risc abandon")
 
+# Every categorical value the model knows, for translating the value side of a
+# LIME equality rule. Built once from the feature schema.
+_CATEGORY_VALUES: tuple[str, ...] = tuple(
+    {value for feature in config.FEATURES for value in feature.categories}
+)
+
 # One explainer per model instance — fitting the discretiser is the expensive
 # part and it depends only on the background distribution, not on the student.
 _EXPLAINER_CACHE: dict[int, object] = {}
@@ -73,9 +79,16 @@ def _humanise(condition: str) -> str:
     substitution happens here instead, longest key first so no key that is a
     prefix of another is partially replaced.
     """
+    from .i18n import tr, tr_value
+
     for key in sorted(config.FEATURE_KEYS, key=len, reverse=True):
         if key in condition:
-            condition = condition.replace(key, config.feature(key).label)
+            condition = condition.replace(key, tr(config.feature(key).label))
+    # Categorical rules read "Label=Valoare"; translate the value side too, or an
+    # English rule list would still say "Attitude towards school=Negativă".
+    for value in sorted(_CATEGORY_VALUES, key=len, reverse=True):
+        if value in condition:
+            condition = condition.replace(value, tr_value(value))
     # LIME writes categorical equalities as "Label=Value"; a spaced "=" reads
     # better next to the numeric rules. The lookarounds keep the "=" of a "<="
     # or ">=" comparison intact — spacing those would render "< =".

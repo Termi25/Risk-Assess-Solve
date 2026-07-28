@@ -74,11 +74,13 @@ class NlpResult:
 
     @property
     def label(self) -> str:
+        from .i18n import tr
+
         if self.valence <= -0.4:
-            return "Ton preponderent negativ / semne de stres"
+            return tr("Ton preponderent negativ / semne de stres")
         if self.valence >= 0.4:
-            return "Ton preponderent pozitiv"
-        return "Ton neutru / mixt"
+            return tr("Ton preponderent pozitiv")
+        return tr("Ton neutru / mixt")
 
 
 def _squash(raw: float) -> float:

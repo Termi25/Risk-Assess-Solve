@@ -30,6 +30,7 @@ from datetime import datetime
 from html import escape
 
 from .. import config
+from ..i18n import tr, tr_band, tr_value, trf
 from ..models import RiskEvaluation, StudentCase
 from ..service import AssessmentResult
 
@@ -77,7 +78,8 @@ def _studentship_gauge_html(score: float) -> str:
     fill = int(round(score / 10.0 * _MAX_BAR_PX))
     return (
         '<table cellspacing="0" cellpadding="2"><tr>'
-        '<td width="150" style="font-size:10pt;"><b>Scor Studentship (implicare)</b></td>'
+        f'<td width="150" style="font-size:10pt;">'
+        f'<b>{escape(tr("Scor Studentship (implicare)"))}</b></td>'
         f'<td width="{_MAX_BAR_PX + 4}">'
         f'<table cellspacing="0" cellpadding="0" bgcolor="{_TRACK_COLOR}"><tr>'
         f'<td width="{max(2, fill)}" bgcolor="{color}">&nbsp;</td>'
@@ -99,18 +101,18 @@ def _page_header_html(section_label: str, *, cover: bool = False) -> str:
     if cover:
         inner = (
             '<td valign="middle">'
-            f'<span style="color:{_INK}; font-size:16pt;"><b>{escape(_REPORT_TITLE)}</b></span><br>'
-            f'<span style="color:{_MUTED}; font-size:9.5pt;">{escape(_REPORT_SUBTITLE)}</span>'
+            f'<span style="color:{_INK}; font-size:16pt;"><b>{escape(tr(_REPORT_TITLE))}</b></span><br>'
+            f'<span style="color:{_MUTED}; font-size:9.5pt;">{escape(tr(_REPORT_SUBTITLE))}</span>'
             "</td>"
             '<td width="120" align="right" valign="middle">'
-            f'<span style="color:{_MUTED}; font-size:8pt;">CONFIDENȚIAL</span>'
+            f'<span style="color:{_MUTED}; font-size:8pt;">{escape(tr("CONFIDENȚIAL"))}</span>'
             "</td>"
         )
         pad = 12
     else:
         inner = (
             '<td valign="middle">'
-            f'<span style="color:{_INK}; font-size:10.5pt;"><b>{escape(_REPORT_TITLE)}</b></span>'
+            f'<span style="color:{_INK}; font-size:10.5pt;"><b>{escape(tr(_REPORT_TITLE))}</b></span>'
             "</td>"
             '<td align="right" valign="middle">'
             f'<span style="color:{_MUTED}; font-size:9pt;">{escape(section_label)}</span>'
@@ -145,14 +147,14 @@ def _meta_strip_html(case: StudentCase, ev: RiskEvaluation, generated: str) -> s
     """A light info strip (elev / clasă / școală / generat / model) under the cover."""
     grade = case.student_grade or str(case.features.get("student_class", "") or "—")
     school = case.school_name or str(case.features.get("school_name", "") or "—")
-    environment = "Urban" if case.is_urban else "Rural"
+    environment = tr_value("Urban" if case.is_urban else "Rural")
     cells = [
-        ("Elev", case.display_name()),
-        ("Clasa", grade),
-        ("Școala", school),
-        ("Mediu", environment),
-        ("Generat", generated),
-        ("Model", ev.model_version or "—"),
+        (tr("Elev"), case.display_name()),
+        (tr("Clasa"), grade),
+        (tr("Școala"), school),
+        (tr("Mediu"), environment),
+        (tr("Generat"), generated),
+        (tr("Model"), ev.model_version or "—"),
     ]
     row_label, row_value = [], []
     for label, value in cells:
@@ -177,26 +179,33 @@ def _meta_strip_html(case: StudentCase, ev: RiskEvaluation, generated: str) -> s
 def _risk_profile_html(ev: RiskEvaluation) -> str:
     tier = config.tier_for_band(ev.risk_band)
     parts: list[str] = []
-    parts.append(_section_title("Profilul de risc al elevului"))
+    parts.append(_section_title(tr("Profilul de risc al elevului")))
     parts.append('<table width="100%" cellpadding="8" cellspacing="0"><tr>')
 
     # Left: the risk-level badge, colour-coded by tier.
     parts.append(
         f'<td width="190" bgcolor="{tier.color}" align="center" valign="middle">'
-        f'<span style="color:{tier.text_color}; font-size:8pt;">NIVEL DE RISC</span><br>'
-        f'<span style="color:{tier.text_color}; font-size:22pt;"><b>{escape(ev.risk_band.upper())}</b></span><br>'
-        f'<span style="color:{tier.text_color}; font-size:11pt;">Scor model: {ev.aggregate_score:.0f}%</span>'
+        f'<span style="color:{tier.text_color}; font-size:8pt;">'
+        f'{escape(tr("NIVEL DE RISC"))}</span><br>'
+        f'<span style="color:{tier.text_color}; font-size:22pt;">'
+        f'<b>{escape(tr_band(ev.risk_band).upper())}</b></span><br>'
+        f'<span style="color:{tier.text_color}; font-size:11pt;">'
+        f'{escape(trf("Scor model: {score:.0f}%", score=ev.aggregate_score))}</span>'
         "</td>"
     )
 
     # Right: urgency, engagement gauge and the main risk indicators.
     parts.append('<td valign="top">')
     parts.append(
-        '<p style="font-size:10pt; margin:0 0 4px 0;"><b>Urgență intervenție:</b> '
-        f'<span style="color:{tier.color};">●</span> {escape(ev.urgency)}</p>'
+        f'<p style="font-size:10pt; margin:0 0 4px 0;">'
+        f'<b>{escape(tr("Urgență intervenție:"))}</b> '
+        f'<span style="color:{tier.color};">●</span> {escape(tr_band(ev.urgency))}</p>'
     )
     parts.append(_studentship_gauge_html(ev.studentship_score))
-    parts.append('<p style="font-size:10pt; margin:6px 0 2px 0;"><b>Indicatori principali de risc:</b></p>')
+    parts.append(
+        f'<p style="font-size:10pt; margin:6px 0 2px 0;">'
+        f'<b>{escape(tr("Indicatori principali de risc:"))}</b></p>'
+    )
     indicators = ev.critical_indicators[:5]
     if indicators:
         parts.append('<ul style="margin-top:2px;">')
@@ -205,7 +214,8 @@ def _risk_profile_html(ev: RiskEvaluation) -> str:
         parts.append("</ul>")
     else:
         parts.append(
-            '<p style="color:#2e8b57; font-size:9.5pt;">Niciun factor major de risc identificat.</p>'
+            f'<p style="color:#2e8b57; font-size:9.5pt;">'
+            f'{escape(tr("Niciun factor major de risc identificat."))}</p>'
         )
     parts.append("</td></tr></table>")
     return "".join(parts)
@@ -216,13 +226,15 @@ def _why_bullets(ev: RiskEvaluation) -> list[str]:
     """The top risk-raising drivers, phrased as short justifications (HTML)."""
     positive = [a for a in ev.top_drivers(len(ev.attributions)) if a.shap_value > 0][:5]
     if not positive:
-        return [
+        return [tr(
             "Profilul elevului este preponderent protectiv; niciun factor nu "
             "crește semnificativ riscul."
-        ]
+        )]
     return [
-        f"<b>{escape(a.label)}</b> — crește riscul cu <b>+{a.points:.1f} pp</b> "
-        f"(valoare: {escape(a.value_display)})"
+        trf("<b>{label}</b> — crește riscul cu <b>+{points:.1f} pp</b> "
+            "(valoare: {value})",
+            label=escape(tr(a.label)), points=a.points,
+            value=escape(tr_value(a.value_display)))
         for a in positive
     ]
 
@@ -233,18 +245,24 @@ def _shap_html(ev: RiskEvaluation, compact: bool = False) -> str:
     val_w = 46 if compact else 70
     fs = "8pt" if compact else "9.5pt"
     parts: list[str] = []
-    parts.append("<h3>Contribuția factorilor (SHAP)</h3>")
+    parts.append(f"<h3>{escape(tr('Contribuția factorilor (SHAP)'))}</h3>")
     if compact:
         parts.append(
-            '<p style="color:#555; font-size:8pt;">Contribuția în puncte '
-            "procentuale (roșu = crește riscul, verde = reduce riscul).</p>"
+            '<p style="color:#555; font-size:8pt;">'
+            + escape(tr("Contribuția în puncte procentuale (roșu = crește "
+                        "riscul, verde = reduce riscul)."))
+            + "</p>"
         )
     else:
         parts.append(
-            '<p style="color:#555; font-size:9pt;">Contribuția fiecărui factor la '
-            "scorul final, în puncte procentuale (roșu = crește riscul, verde = "
-            "reduce riscul). Suma contribuțiilor + valoarea de bază "
-            f"({ev.base_value:.3f}) = probabilitatea modelului.</p>"
+            '<p style="color:#555; font-size:9pt;">'
+            + escape(trf(
+                "Contribuția fiecărui factor la scorul final, în puncte "
+                "procentuale (roșu = crește riscul, verde = reduce riscul). "
+                "Suma contribuțiilor + valoarea de bază ({base:.3f}) = "
+                "probabilitatea modelului.",
+                base=ev.base_value))
+            + "</p>"
         )
     drivers = ev.top_drivers(len(ev.attributions))
     max_pts = max((abs(a.points) for a in drivers), default=1.0) or 1.0
@@ -255,8 +273,9 @@ def _shap_html(ev: RiskEvaluation, compact: bool = False) -> str:
         sign = "+" if a.shap_value >= 0 else ""
         parts.append(
             "<tr>"
-            f'<td width="{label_w}" style="font-size:{fs};">{escape(a.label)}<br>'
-            f'<span style="color:#888; font-size:7.5pt;">valoare: {escape(a.value_display)}</span></td>'
+            f'<td width="{label_w}" style="font-size:{fs};">{escape(tr(a.label))}<br>'
+            f'<span style="color:#888; font-size:7.5pt;">{escape(tr("valoare"))}: '
+            f'{escape(tr_value(a.value_display))}</span></td>'
             + _bar_cell(width, color, bar_px)
             + f'<td width="{val_w}" align="right" style="font-size:{fs};">'
             f'<b><span style="color:{color};">{sign}{a.points:.1f} pp</span></b></td>'
@@ -272,17 +291,18 @@ def _subscores_html(ev: RiskEvaluation, compact: bool = False) -> str:
     val_w = 46 if compact else 70
     fs = "8pt" if compact else "9.5pt"
     parts: list[str] = []
-    parts.append("<h3>Sub-scoruri pe domenii</h3>")
+    parts.append(f"<h3>{escape(tr('Sub-scoruri pe domenii'))}</h3>")
     parts.append(
         f'<p style="color:#555; font-size:{("8pt" if compact else "9pt")};">'
-        "Ponderea fiecărui domeniu în explicația totală (%).</p>"
+        + escape(tr("Ponderea fiecărui domeniu în explicația totală (%)."))
+        + "</p>"
     )
     parts.append('<table width="100%" cellpadding="3">')
     for s in ev.sub_scores:
         width = s.value / 100.0 * bar_px
         parts.append(
             "<tr>"
-            f'<td width="{label_w}" style="font-size:{fs};">{escape(s.name)}</td>'
+            f'<td width="{label_w}" style="font-size:{fs};">{escape(tr(s.name))}</td>'
             + _bar_cell(width, _DOMAIN_COLOR, bar_px)
             + f'<td width="{val_w}" align="right" style="font-size:{fs};"><b>{s.value:.0f}%</b></td>'
             "</tr>"
@@ -313,13 +333,16 @@ def _lime_html(result: AssessmentResult) -> str:
 
     ev = result.evaluation
     parts: list[str] = []
-    parts.append(_section_title("Profil individual de risc (LIME)"))
+    parts.append(_section_title(tr("Profil individual de risc (LIME)")))
     parts.append(
-        '<p style="color:#555; font-size:9pt;">Regulile care descriu situația '
-        "<i>acestui</i> elev, așa cum le-a identificat un model local aproximativ "
-        "(LIME), antrenat în jurul cazului său. Spre deosebire de analiza SHAP, "
-        "ponderile de mai jos <b>nu se adună</b> la scorul final — ele arată ce "
-        "anume diferențiază local acest elev, nu din ce se compune procentul.</p>"
+        '<p style="color:#555; font-size:9pt;">'
+        # Contains inline <i>/<b> markup, so it is deliberately not escaped.
+        + tr("Regulile care descriu situația <i>acestui</i> elev, așa cum le-a "
+             "identificat un model local aproximativ (LIME), antrenat în jurul "
+             "cazului său. Spre deosebire de analiza SHAP, ponderile de mai jos "
+             "<b>nu se adună</b> la scorul final — ele arată ce anume "
+             "diferențiază local acest elev, nu din ce se compune procentul.")
+        + "</p>"
     )
 
     conditions = lime.top_conditions(len(lime.conditions))
@@ -347,19 +370,26 @@ def _lime_html(result: AssessmentResult) -> str:
     # Cell-level background is respected by both, as in ``_meta_strip_html``.
     fid_color = _fidelity_color(lime.fidelity_r2)
     parts.append(_spacer(8))
+    fidelity = trf(
+        "Fidelitatea explicației locale: {label}",
+        label=f'<span style="color:{fid_color};">{escape(lime.fidelity_label)}</span>',
+    )
     parts.append(
         f'<table width="100%" cellspacing="0" cellpadding="7">'
         f'<tr><td bgcolor="{_PANEL}">'
-        f'<span style="font-size:9pt;"><b>Fidelitatea explicației locale: '
-        f'<span style="color:{fid_color};">{escape(lime.fidelity_label)}</span></b> '
-        f"(R² = {lime.fidelity_r2:.2f} pe {lime.num_samples} perturbări)</span><br>"
-        f'<span style="color:#555; font-size:8.5pt;">Modelul local aproximează '
-        f"probabilitatea la <b>{lime.local_prediction:.3f}</b>, față de "
-        f"<b>{ev.probability:.3f}</b> cât indică modelul real "
-        f"(diferență: {lime.local_gap:.3f}). Cu cât R² este mai mic și diferența "
-        "mai mare, cu atât regulile de mai sus trebuie citite mai prudent — "
-        "decizia rămâne a cadrului didactic.</span>"
-        "</td></tr></table>"
+        f'<span style="font-size:9pt;"><b>{fidelity}</b> '
+        + escape(trf("(R² = {r2:.2f} pe {samples} perturbări)",
+                     r2=lime.fidelity_r2, samples=lime.num_samples))
+        + "</span><br>"
+        f'<span style="color:#555; font-size:8.5pt;">'
+        + trf("Modelul local aproximează probabilitatea la <b>{local:.3f}</b>, "
+              "față de <b>{actual:.3f}</b> cât indică modelul real (diferență: "
+              "{gap:.3f}). Cu cât R² este mai mic și diferența mai mare, cu atât "
+              "regulile de mai sus trebuie citite mai prudent — decizia rămâne "
+              "a cadrului didactic.",
+              local=lime.local_prediction, actual=ev.probability,
+              gap=lime.local_gap)
+        + "</span></td></tr></table>"
     )
     return "".join(parts)
 
@@ -380,12 +410,17 @@ def _nlp_html(result: AssessmentResult) -> str:
     neg = ", ".join(escape(t) for t in nlp.negative_terms) or "—"
     pos = ", ".join(escape(t) for t in nlp.positive_terms) or "—"
     return (
-        "<h3>Analiză text (NLP)</h3>"
+        f"<h3>{escape(tr('Analiză text (NLP)'))}</h3>"
         f"<p><b>{escape(nlp.label)}</b><br>"
-        f"Scor stres emoțional (feature model): <b>{nlp.stress_score:.2f}</b> / 2.0<br>"
-        f"Valență: {nlp.valence:+.2f}<br>"
-        f'<span style="color:{_POS_COLOR};">Termeni negativi:</span> {neg}<br>'
-        f'<span style="color:{_NEG_COLOR};">Termeni pozitivi:</span> {pos}</p>'
+        + trf("Scor stres emoțional (feature model): <b>{score:.2f}</b> / 2.0",
+              score=nlp.stress_score)
+        + "<br>"
+        + escape(trf("Valență: {valence:+.2f}", valence=nlp.valence))
+        + "<br>"
+        f'<span style="color:{_POS_COLOR};">{escape(tr("Termeni negativi:"))}</span> '
+        f"{neg}<br>"
+        f'<span style="color:{_NEG_COLOR};">{escape(tr("Termeni pozitivi:"))}</span> '
+        f"{pos}</p>"
     )
 
 
@@ -400,10 +435,12 @@ def _xai_html(
     """
     ev = result.evaluation
     parts: list[str] = []
-    parts.append(_section_title("Explicație xAI (de ce acest nivel de risc)"))
+    parts.append(_section_title(tr("Explicație xAI (de ce acest nivel de risc)")))
     parts.append(
-        '<p style="color:#555; font-size:9pt;">Factorii care justifică nivelul '
-        "de risc, în ordinea importanței pentru model:</p>"
+        '<p style="color:#555; font-size:9pt;">'
+        + escape(tr("Factorii care justifică nivelul de risc, în ordinea "
+                    "importanței pentru model:"))
+        + "</p>"
     )
     parts.append('<ul>')
     for bullet in _why_bullets(ev):
@@ -423,9 +460,12 @@ def _xai_html(
         parts.append(lime_block)
     parts.append(_nlp_html(result))
     parts.append(
-        f'<p style="color:#888; font-size:8pt;">Probabilitate model: '
-        f"{ev.probability:.3f} • valoare de referință (bază SHAP): "
-        f"{ev.base_value:.3f} • model: {escape(ev.model_version)}</p>"
+        '<p style="color:#888; font-size:8pt;">'
+        + escape(trf("Probabilitate model: {probability:.3f} • valoare de "
+                     "referință (bază SHAP): {base:.3f} • model: {version}",
+                     probability=ev.probability, base=ev.base_value,
+                     version=ev.model_version))
+        + "</p>"
     )
     return "".join(parts)
 
@@ -440,19 +480,20 @@ def render_result_html(result: AssessmentResult) -> str:
     return "".join(parts)
 
 
-_PLACEHOLDER = (
-    '<div style="font-family: Segoe UI, Arial; color:#888; padding:20px;">'
-    "<h3>Niciun rezultat încă</h3>"
-    "<p>Completează datele elevului în stânga și apasă "
-    "<b>„Evaluează riscul”</b>.</p>"
-    "<p>Scorul este calculat local de un model XGBoost real, iar explicația "
-    "provine din valori SHAP autentice — nu dintr-o simulare a unui LLM.</p>"
-    "</div>"
-)
-
-
 def placeholder_html() -> str:
-    return _PLACEHOLDER
+    """Built per call, not cached: the language can change between calls."""
+    return (
+        '<div style="font-family: Segoe UI, Arial; color:#888; padding:20px;">'
+        f"<h3>{escape(tr('Niciun rezultat încă'))}</h3>"
+        "<p>"
+        + trf("Completează datele elevului în stânga și apasă "
+              "<b>„Evaluează riscul”</b>.")
+        + "</p><p>"
+        + escape(tr("Scorul este calculat local de un model XGBoost real, iar "
+                    "explicația provine din valori SHAP autentice — nu dintr-o "
+                    "simulare a unui LLM."))
+        + "</p></div>"
+    )
 
 
 # --- Page 1: Datele introduse ----------------------------------------------
@@ -474,15 +515,17 @@ def _personal_data_html(case: StudentCase) -> str:
         parts.append(
             f'<tr bgcolor="{stripe}">'
             f'<td width="44%" bgcolor="{_PANEL}" style="font-size:9.5pt; color:{_INK};">'
-            f"<b>{escape(item.label)}</b></td>"
-            f'<td style="font-size:9.5pt; color:{_INK};">{escape(str(value))}</td>'
+            f"<b>{escape(tr(item.label))}</b></td>"
+            f'<td style="font-size:9.5pt; color:{_INK};">'
+            f"{escape(tr_value(str(value)))}</td>"
             "</tr>"
         )
         row += 1
     if row == 0:
         parts.append(
-            '<tr><td style="font-size:9.5pt; color:#888;">'
-            "<i>Nu au fost introduse date de chestionar.</i></td></tr>"
+            '<tr><td style="font-size:9.5pt; color:#888;"><i>'
+            + escape(tr("Nu au fost introduse date de chestionar."))
+            + "</i></td></tr>"
         )
     parts.append("</table>")
     return "".join(parts)
@@ -525,15 +568,18 @@ def _markdown_to_html(md_text: str) -> str:
 
 def _plan_html(plan_text: str, source: str) -> str:
     parts: list[str] = []
-    parts.append(_section_title("Plan personalizat de intervenție"))
+    parts.append(_section_title(tr("Plan personalizat de intervenție")))
     parts.append(
-        '<p style="color:#555; font-size:9pt;">Contract de implicare al elevului: '
-        "„Proiectul Podul”.</p>"
+        '<p style="color:#555; font-size:9pt;">'
+        + escape(tr("Contract de implicare al elevului: „Proiectul Podul”."))
+        + "</p>"
     )
     if plan_text and plan_text.strip():
         if source:
             parts.append(
-                f'<p style="color:#555; font-size:9pt;">Sursă: {escape(source)}</p>'
+                '<p style="color:#555; font-size:9pt;">'
+                + escape(trf("Sursă: {source}", source=source))
+                + "</p>"
             )
         body = _markdown_to_html(plan_text)
         parts.append(
@@ -544,7 +590,9 @@ def _plan_html(plan_text: str, source: str) -> str:
         )
     else:
         parts.append(
-            '<p style="color:#888;"><i>Planul de intervenție nu a fost generat.</i></p>'
+            '<p style="color:#888;"><i>'
+            + escape(tr("Planul de intervenție nu a fost generat."))
+            + "</i></p>"
         )
     return "".join(parts)
 
@@ -554,8 +602,13 @@ def _plan_html(plan_text: str, source: str) -> str:
 # ``llm_client.SYSTEM_PROMPT`` for the cloud plan, the "4. Indicatori de succes"
 # block for the local template. The report also renders that section on its own,
 # so it has to be lifted out of the plan body or it prints twice.
+# Both languages must be recognised: the cloud plan is written in the interface
+# language, so an English plan headed "4. Success indicators" has to be lifted
+# out too — otherwise the list prints twice, once in the body and once in the
+# dedicated panel, which is the exact regression this split exists to prevent.
 _SUCCESS_HEADING_RE = re.compile(
-    r"^\s*(?:#{1,6}\s*)?(?:\*\*)?\s*\d*\.?\s*indicatori de succes"
+    r"^\s*(?:#{1,6}\s*)?(?:\*\*)?\s*\d*\.?\s*"
+    r"(?:indicatori de succes|success indicators)"
 )
 # What terminates the block: a markdown heading, a horizontal rule, or the local
 # template's "— Bază de calcul (date anonimizate) —" footer.
@@ -609,7 +662,7 @@ def _success_indicators_html(ev: RiskEvaluation, section_md: str = "") -> str:
     indicators survive de-duplication rather than being discarded.
     """
     parts: list[str] = []
-    parts.append(_section_title("Indicatori de succes (4 săptămâni)"))
+    parts.append(_section_title(tr("Indicatori de succes (4 săptămâni)")))
     if section_md.strip():
         body = _markdown_to_html(section_md)
     else:
@@ -617,13 +670,19 @@ def _success_indicators_html(ev: RiskEvaluation, section_md: str = "") -> str:
         target = min(10.0, round(current + 3.0))
         body = (
             '<ul style="margin:0; font-size:10pt;">'
-            "<li>Absențe: sub 2 absențe nemotivate pe săptămână.</li>"
-            f"<li>Implicare: creșterea scorului Studentship de la <b>{current:g}/10</b> "
-            f"la <b>{target:g}/10</b>.</li>"
-            "<li>Participare: cel puțin un moment / o activitate școlară activă pe săptămână.</li>"
-            "<li>Atitudine: trecere spre „neutru / pozitiv” față de școală.</li>"
-            "<li>Reevaluarea scorului de risc la finalul celor 4 săptămâni.</li>"
-            "</ul>"
+            f"<li>{escape(tr('Absențe: sub 2 absențe nemotivate pe săptămână.'))}</li>"
+            "<li>"
+            + trf("Implicare: creșterea scorului Studentship de la "
+                  "<b>{current:g}/10</b> la <b>{target:g}/10</b>.",
+                  current=current, target=target)
+            + "</li><li>"
+            + escape(tr("Participare: cel puțin un moment / o activitate "
+                        "școlară activă pe săptămână."))
+            + "</li><li>"
+            + escape(tr("Atitudine: trecere spre „neutru / pozitiv” față de școală."))
+            + "</li><li>"
+            + escape(tr("Reevaluarea scorului de risc la finalul celor 4 săptămâni."))
+            + "</li></ul>"
         )
     parts.append(
         '<table width="100%" cellpadding="10" cellspacing="0" '
@@ -660,10 +719,12 @@ def build_report_html(case: StudentCase, result: AssessmentResult, plan_text: st
     parts.append(_spacer(10))
     parts.append(_meta_strip_html(case, ev, generated))
     parts.append(_spacer(16))
-    parts.append(_section_title("Datele introduse"))
+    parts.append(_section_title(tr("Datele introduse")))
     parts.append(
-        '<p style="color:#555; font-size:9pt;">Date de identificare și răspunsurile '
-        "din chestionar, așa cum au fost introduse pentru această evaluare.</p>"
+        '<p style="color:#555; font-size:9pt;">'
+        + escape(tr("Date de identificare și răspunsurile din chestionar, așa "
+                    "cum au fost introduse pentru această evaluare."))
+        + "</p>"
     )
     parts.append(_personal_data_html(case))
 
@@ -671,7 +732,7 @@ def build_report_html(case: StudentCase, result: AssessmentResult, plan_text: st
     # The LIME rule list sits under the sub-scores rather than on its own sheet:
     # it refines the same domain weights, and a teacher reads the two together.
     parts.append(_page_break())
-    parts.append(_page_header_html("Evaluarea riscului"))
+    parts.append(_page_header_html(tr("Evaluarea riscului")))
     parts.append(_spacer(12))
     parts.append(_spacer(4))
     parts.append(_risk_profile_html(ev))
@@ -680,7 +741,7 @@ def build_report_html(case: StudentCase, result: AssessmentResult, plan_text: st
 
     # --- Page 3 — Planul de recomandare ------------------------------------
     parts.append(_page_break())
-    parts.append(_page_header_html("Planul de recomandare"))
+    parts.append(_page_header_html(tr("Planul de recomandare")))
     parts.append(_spacer(12))
     parts.append(_spacer(4))
     parts.append(_plan_html(plan_body, ev.action_plan_source))
@@ -703,11 +764,11 @@ def _summary_header_html() -> str:
     """Cover band for the group report (mirrors the per-student cover)."""
     inner = (
         '<td valign="middle">'
-        f'<span style="color:{_INK}; font-size:16pt;"><b>{escape(_SUMMARY_TITLE)}</b></span><br>'
-        f'<span style="color:{_MUTED}; font-size:9.5pt;">{escape(_SUMMARY_SUBTITLE)}</span>'
+        f'<span style="color:{_INK}; font-size:16pt;"><b>{escape(tr(_SUMMARY_TITLE))}</b></span><br>'
+        f'<span style="color:{_MUTED}; font-size:9.5pt;">{escape(tr(_SUMMARY_SUBTITLE))}</span>'
         "</td>"
         '<td width="120" align="right" valign="middle">'
-        f'<span style="color:{_MUTED}; font-size:8pt;">CONFIDENȚIAL</span>'
+        f'<span style="color:{_MUTED}; font-size:8pt;">{escape(tr("CONFIDENȚIAL"))}</span>'
         "</td>"
     )
     return (
@@ -723,10 +784,10 @@ def _summary_meta_strip_html(
     school_name: str, count: int, generated: str, model_version: str
 ) -> str:
     cells = [
-        ("Școala", school_name or "—"),
-        ("Elevi evaluați", str(count)),
-        ("Generat", generated),
-        ("Model", model_version or "—"),
+        (tr("Școala"), school_name or "—"),
+        (tr("Elevi evaluați"), str(count)),
+        (tr("Generat"), generated),
+        (tr("Model"), model_version or "—"),
     ]
     row_label = "".join(
         f'<td bgcolor="{_PANEL}" style="font-size:7.5pt; color:{_MUTED};">'
@@ -751,7 +812,7 @@ def _risk_distribution_html(entries: list[tuple[StudentCase, RiskEvaluation]]) -
     for _, ev in entries:
         counts[ev.risk_band] = counts.get(ev.risk_band, 0) + 1
 
-    parts: list[str] = [_section_title("Distribuția pe niveluri de risc")]
+    parts: list[str] = [_section_title(tr("Distribuția pe niveluri de risc"))]
     parts.append('<table width="100%" cellpadding="3" cellspacing="0">')
     for tier in reversed(config.RISK_TIERS):  # Critic -> Moderat
         n = counts.get(tier.band, 0)
@@ -759,12 +820,15 @@ def _risk_distribution_html(entries: list[tuple[StudentCase, RiskEvaluation]]) -
         pct = n / total * 100.0
         parts.append(
             "<tr>"
-            f'<td width="150" style="font-size:9.5pt;"><b>{escape(tier.band)}</b><br>'
-            f'<span style="color:#888; font-size:7.5pt;">{escape(tier.urgency)}</span></td>'
+            f'<td width="150" style="font-size:9.5pt;">'
+            f'<b>{escape(tr_band(tier.band))}</b><br>'
+            f'<span style="color:#888; font-size:7.5pt;">'
+            f'{escape(tr_band(tier.urgency))}</span></td>'
             + _bar_cell(width, tier.color)
-            + f'<td width="90" style="font-size:9.5pt;">'
-            f'<b>{n}</b> elevi <span style="color:#888;">({pct:.0f}%)</span></td>'
-            "</tr>"
+            + '<td width="90" style="font-size:9.5pt;">'
+            + trf('<b>{count}</b> elevi <span style="color:#888;">({pct:.0f}%)</span>',
+                  count=n, pct=pct)
+            + "</td></tr>"
         )
     parts.append("</table>")
     return "".join(parts)
@@ -787,8 +851,8 @@ def _priority_table_html(entries: list[tuple[StudentCase, RiskEvaluation]]) -> s
         + "".join(
             f'<td style="color:#ffffff; font-size:8pt;"><b>{escape(h)}</b></td>'
             for h in (
-                "#", "Elev", "Clasa", "Nivel de risc", "Scor",
-                "Urgență", "Implicare", "Factori principali",
+                "#", tr("Elev"), tr("Clasa"), tr("Nivel de risc"), tr("Scor"),
+                tr("Urgență"), tr("Implicare"), tr("Factori principali"),
             )
         )
         + "</tr>"
@@ -805,20 +869,22 @@ def _priority_table_html(entries: list[tuple[StudentCase, RiskEvaluation]]) -> s
             f'<td style="font-size:9pt;"><b>{escape(case.display_name())}</b></td>'
             f'<td style="font-size:8.5pt;">{escape(case.student_grade or "—")}</td>'
             f'<td bgcolor="{tier.color}" align="center" style="font-size:8.5pt; color:{tier.text_color};">'
-            f"<b>{escape(ev.risk_band)}</b></td>"
+            f"<b>{escape(tr_band(ev.risk_band))}</b></td>"
             f'<td align="right" style="font-size:9pt;"><b>{ev.aggregate_score:.0f}%</b></td>'
-            f'<td style="font-size:8.5pt;">{escape(ev.urgency)}</td>'
+            f'<td style="font-size:8.5pt;">{escape(tr_band(ev.urgency))}</td>'
             f'<td align="center" style="font-size:8.5pt;">{ev.studentship_score:g}/10</td>'
             f'<td style="font-size:8pt;">{escape(indicators)}</td>'
             "</tr>"
         )
 
     return (
-        _section_title("Prioritizarea intervențiilor")
-        + '<p style="color:#555; font-size:9pt;">Elevii sunt ordonați după urgența '
-        "intervenției: mai întâi nivelul de risc (Critic → Moderat), apoi scorul "
-        "modelului; la risc egal, o implicare (Studentship) mai scăzută urcă în "
-        "prioritate.</p>"
+        _section_title(tr("Prioritizarea intervențiilor"))
+        + '<p style="color:#555; font-size:9pt;">'
+        + escape(tr("Elevii sunt ordonați după urgența intervenției: mai întâi "
+                    "nivelul de risc (Critic → Moderat), apoi scorul modelului; "
+                    "la risc egal, o implicare (Studentship) mai scăzută urcă în "
+                    "prioritate."))
+        + "</p>"
         '<table width="100%" cellpadding="6" cellspacing="0" border="1" '
         f'style="border-color:{_BORDER};">{head}{"".join(rows)}</table>'
     )
@@ -853,10 +919,12 @@ def build_summary_report_html(
     parts.append(_priority_table_html(entries))
     parts.append(_spacer(12))
     parts.append(
-        '<p style="color:#888; font-size:8pt;">Scorurile și explicațiile provin '
-        "dintr-un model XGBoost real cu atribuiri SHAP autentice. Acest raport "
-        "sintetizează evaluările individuale; pentru fiecare elev există un raport "
-        "detaliat separat.</p>"
+        '<p style="color:#888; font-size:8pt;">'
+        + escape(tr("Scorurile și explicațiile provin dintr-un model XGBoost "
+                    "real cu atribuiri SHAP autentice. Acest raport sintetizează "
+                    "evaluările individuale; pentru fiecare elev există un raport "
+                    "detaliat separat."))
+        + "</p>"
     )
     parts.append("</div>")
     return "".join(parts)

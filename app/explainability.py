@@ -184,44 +184,52 @@ def _critical_indicators(mf: dict) -> list[str]:
     Ordered by severity so the report can show the most important few first.
     ``mf`` is a composed model-feature dict.
     """
+    # These are display statements, not model inputs — only the report reads
+    # them — so they are built in the interface language. The *conditions* still
+    # compare against the model's Romanian category vocabulary.
+    from .i18n import tr, trf
+
     out: list[str] = []
     unexcused = _num(mf.get("Absente_Nemotivate_Zilele_1_13"))
     if unexcused >= _SEVERE_UNEXCUSED:
-        out.append(f"Absenteism cronic ({int(unexcused)} absențe nemotivate / 3 luni)")
+        out.append(trf("Absenteism cronic ({count} absențe nemotivate / 3 luni)",
+                       count=int(unexcused)))
     elif unexcused > 12:
-        out.append(f"Absențe nemotivate ridicate ({int(unexcused)} / 3 luni)")
+        out.append(trf("Absențe nemotivate ridicate ({count} / 3 luni)",
+                       count=int(unexcused)))
 
     studentship = _num(mf.get("Studentship_Score"), 10.0)
     if studentship <= _LOW_STUDENTSHIP:
-        out.append(f"Implicare (Studentship) foarte scăzută ({studentship:g}/10)")
+        out.append(trf("Implicare (Studentship) foarte scăzută ({score:g}/10)",
+                       score=studentship))
 
     medie = _num(mf.get("Medie_Modul_Anterior"), 10.0)
     if medie < _ACADEMIC_FAIL:
-        out.append(f"Medie sub pragul de promovare ({medie:g})")
+        out.append(trf("Medie sub pragul de promovare ({average:g})", average=medie))
 
     note_sub5 = _num(mf.get("Note_Sub_5"))
     if note_sub5 >= 3:
-        out.append(f"Note multiple sub 5 ({int(note_sub5)})")
+        out.append(trf("Note multiple sub 5 ({count})", count=int(note_sub5)))
 
     feeling = str(mf.get("Cum_te_Simti_La_Scoala", ""))
     stress = _num(mf.get("Stres_Emotional_NLP"))
     if feeling in {"Stresat", "Izolat"} or stress >= _CRISIS_STRESS:
-        out.append("Stare emoțională vulnerabilă (stres / izolare)")
+        out.append(tr("Stare emoțională vulnerabilă (stres / izolare)"))
 
     if str(mf.get("Sanctiuni_Avertismente", "")) == "Sancțiuni":
-        out.append("Sancțiuni disciplinare active")
+        out.append(tr("Sancțiuni disciplinare active"))
 
     if str(mf.get("Atitudine_Scoala", "")) == "Negativă":
-        out.append("Atitudine negativă față de școală")
+        out.append(tr("Atitudine negativă față de școală"))
 
     if str(mf.get("Scoala_Ajuta_Obiective", "")) == "Nu":
-        out.append("Nu percepe sprijin pentru obiectivele personale")
+        out.append(tr("Nu percepe sprijin pentru obiectivele personale"))
 
     if str(mf.get("Participare_Extrascolara", "")) == "Nu":
-        out.append("Fără participare extrașcolară")
+        out.append(tr("Fără participare extrașcolară"))
 
     if str(mf.get("Situatie_Familiala", "")) not in {"Ambii părinți", ""}:
-        out.append("Sprijin familial redus (situație monoparentală / tutore)")
+        out.append(tr("Sprijin familial redus (situație monoparentală / tutore)"))
 
     return out
 

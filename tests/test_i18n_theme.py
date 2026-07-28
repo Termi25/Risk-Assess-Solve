@@ -132,7 +132,11 @@ def _string_literal_args(path: Path, func_names: set[str]) -> set[str]:
 
 @pytest.mark.parametrize(
     "module",
-    ["ui/main_window.py", "ui/settings_dialog.py", "ui/metrics_dialog.py"],
+    [
+        "ui/main_window.py", "ui/settings_dialog.py", "ui/metrics_dialog.py",
+        "ui/report.py", "models.py", "nlp_engine.py", "explainability.py",
+        "lime_explainer.py",
+    ],
 )
 def test_every_tr_call_site_has_a_catalog_entry(module):
     """Catches a call-site literal drifting away from its catalog key."""
@@ -146,7 +150,11 @@ def test_every_tr_call_site_has_a_catalog_entry(module):
 
 @pytest.mark.parametrize(
     "module",
-    ["ui/main_window.py", "ui/settings_dialog.py", "ui/metrics_dialog.py"],
+    [
+        "ui/main_window.py", "ui/settings_dialog.py", "ui/metrics_dialog.py",
+        "ui/report.py", "models.py", "nlp_engine.py", "explainability.py",
+        "lime_explainer.py",
+    ],
 )
 def test_every_trf_call_site_has_a_template(module):
     literals = _string_literal_args(APP_DIR / module, {"trf"})

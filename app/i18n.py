@@ -324,6 +324,168 @@ _UI: dict[str, str] = {
     "Echilibrare înainte SMOTE-NC": "Balance before SMOTE-NC",
     "Echilibrare după SMOTE-NC": "Balance after SMOTE-NC",
     # --- about ---
+    # --- model feature labels (config.FEATURES) ---
+    # Shown as SHAP row labels and inside LIME rule text.
+    "Vârsta (ani)": "Age (years)",
+    "Sexul": "Sex",
+    "Media modulului anterior": "Previous module average",
+    "Mediu rezidențial": "Residential environment",
+    "Situație familială": "Family situation",
+    "Educația mamei": "Mother's education",
+    "Educația tatălui": "Father's education",
+    "Absențe nemotivate (3 luni)": "Unexcused absences (3 months)",
+    "Absențe motivate (3 luni)": "Excused absences (3 months)",
+    "Participare extrașcolară": "Extracurricular participation",
+    "Număr note sub 5": "Number of grades below 5",
+    "Scor Studentship (implicare 0–10)": "Studentship score (engagement 0–10)",
+    "Atitudinea față de școală": "Attitude towards school",
+    "Sancțiuni / avertismente": "Sanctions / warnings",
+    "Cum se simte la școală": "How they feel at school",
+    "Școala ajută obiectivele personale": "School supports personal goals",
+    "Stres emoțional (NLP, 0–2)": "Emotional stress (NLP, 0–2)",
+    # Attribution / condition direction (models.FeatureAttribution.direction).
+    "crește riscul": "raises the risk",
+    "reduce riscul": "lowers the risk",
+    # --- report: titles and chrome ---
+    "Analiză xAI și plan personalizat de intervenție":
+        "xAI Analysis and Personalized Intervention Plan",
+    "Raport de evaluare a riscului de abandon școlar":
+        "School dropout risk assessment report",
+    "CONFIDENȚIAL": "CONFIDENTIAL",
+    "Datele introduse": "Input data",
+    "Evaluarea riscului": "Risk assessment",
+    "Planul de recomandare": "Recommendation plan",
+    "Date de identificare și răspunsurile din chestionar, așa cum au fost "
+    "introduse pentru această evaluare.":
+        "Identification data and questionnaire answers, exactly as entered for "
+        "this assessment.",
+    "Nu au fost introduse date de chestionar.":
+        "No questionnaire data was entered.",
+    # meta strip
+    "Elev": "Student",
+    "Clasa": "Class",
+    "Școala": "School",
+    "Mediu": "Environment",
+    "Generat": "Generated",
+    "Model": "Model",
+    # --- report: risk profile ---
+    "Profilul de risc al elevului": "Student risk profile",
+    "NIVEL DE RISC": "RISK LEVEL",
+    "Urgență intervenție:": "Intervention urgency:",
+    "Indicatori principali de risc:": "Main risk indicators:",
+    "Niciun factor major de risc identificat.":
+        "No major risk factor identified.",
+    "Scor Studentship (implicare)": "Studentship score (engagement)",
+    # --- report: xAI ---
+    "Explicație xAI (de ce acest nivel de risc)":
+        "xAI explanation (why this risk level)",
+    "Factorii care justifică nivelul de risc, în ordinea importanței pentru "
+    "model:":
+        "The factors behind this risk level, in order of importance to the "
+        "model:",
+    "Profilul elevului este preponderent protectiv; niciun factor nu crește "
+    "semnificativ riscul.":
+        "This student's profile is predominantly protective; no factor raises "
+        "the risk significantly.",
+    "Contribuția factorilor (SHAP)": "Factor contributions (SHAP)",
+    "Contribuția în puncte procentuale (roșu = crește riscul, verde = reduce "
+    "riscul).":
+        "Contribution in percentage points (red = raises risk, green = lowers "
+        "risk).",
+    "Sub-scoruri pe domenii": "Sub-scores by domain",
+    "Ponderea fiecărui domeniu în explicația totală (%).":
+        "Each domain's share of the total explanation (%).",
+    "valoare": "value",
+    # --- report: LIME ---
+    "Profil individual de risc (LIME)": "Individual risk profile (LIME)",
+    "Regulile care descriu situația <i>acestui</i> elev, așa cum le-a "
+    "identificat un model local aproximativ (LIME), antrenat în jurul cazului "
+    "său. Spre deosebire de analiza SHAP, ponderile de mai jos <b>nu se "
+    "adună</b> la scorul final — ele arată ce anume diferențiază local acest "
+    "elev, nu din ce se compune procentul.":
+        "The rules describing <i>this</i> student's situation, as identified by "
+        "a local approximate model (LIME) fitted around their case. Unlike the "
+        "SHAP analysis, the weights below <b>do not add up</b> to the final "
+        "score — they show what locally distinguishes this student, not what "
+        "the percentage is composed of.",
+    # --- report: NLP ---
+    "Analiză text (NLP)": "Text analysis (NLP)",
+    "Termeni negativi:": "Negative terms:",
+    "Termeni pozitivi:": "Positive terms:",
+    "Ton preponderent negativ / semne de stres":
+        "Predominantly negative tone / signs of stress",
+    "Ton preponderent pozitiv": "Predominantly positive tone",
+    "Ton neutru / mixt": "Neutral / mixed tone",
+    # --- report: LIME fidelity bands (models.LimeExplanation.fidelity_label) ---
+    "bună": "good",
+    "moderată": "moderate",
+    "slabă": "weak",
+    # --- report: sub-score domains (explainability.FEATURE_DOMAINS) ---
+    "Frecvență": "Attendance",
+    "Performanță academică": "Academic performance",
+    "Context familial": "Family context",
+    "Climat școlar": "School climate",
+    "Stare emoțională (NLP)": "Emotional state (NLP)",
+    "Profil demografic": "Demographic profile",
+    "Altele": "Other",
+    # --- report: critical indicators without numbers ---
+    "Stare emoțională vulnerabilă (stres / izolare)":
+        "Vulnerable emotional state (stress / isolation)",
+    "Sancțiuni disciplinare active": "Active disciplinary sanctions",
+    "Atitudine negativă față de școală": "Negative attitude towards school",
+    "Nu percepe sprijin pentru obiectivele personale":
+        "Does not perceive support for personal goals",
+    "Fără participare extrașcolară": "No extracurricular participation",
+    "Sprijin familial redus (situație monoparentală / tutore)":
+        "Reduced family support (single-parent / guardian situation)",
+    # --- report: plan + success indicators ---
+    "Plan personalizat de intervenție": "Personalized intervention plan",
+    "Contract de implicare al elevului: „Proiectul Podul”.":
+        "Student engagement contract: “The Bridge Project”.",
+    "Planul de intervenție nu a fost generat.":
+        "The intervention plan was not generated.",
+    "Indicatori de succes (4 săptămâni)": "Success indicators (4 weeks)",
+    "Absențe: sub 2 absențe nemotivate pe săptămână.":
+        "Absences: fewer than 2 unexcused absences per week.",
+    "Participare: cel puțin un moment / o activitate școlară activă pe "
+    "săptămână.":
+        "Participation: at least one active school moment / activity per week.",
+    "Atitudine: trecere spre „neutru / pozitiv” față de școală.":
+        "Attitude: shift towards “neutral / positive” about school.",
+    "Reevaluarea scorului de risc la finalul celor 4 săptămâni.":
+        "Re-assessment of the risk score at the end of the 4 weeks.",
+    # --- report: placeholder view ---
+    "Niciun rezultat încă": "No result yet",
+    "Scorul este calculat local de un model XGBoost real, iar explicația "
+    "provine din valori SHAP autentice — nu dintr-o simulare a unui LLM.":
+        "The score is computed locally by a real XGBoost model, and the "
+        "explanation comes from genuine SHAP values — not from an LLM "
+        "simulation.",
+    # --- summary (group) report ---
+    "Raport general — prioritizarea intervențiilor":
+        "Summary report — intervention prioritization",
+    "Evaluarea riscului de abandon școlar la nivel de grup":
+        "Group-level school dropout risk assessment",
+    "Elevi evaluați": "Students assessed",
+    "Distribuția pe niveluri de risc": "Distribution by risk level",
+    "Prioritizarea intervențiilor": "Intervention prioritization",
+    "Elevii sunt ordonați după urgența intervenției: mai întâi nivelul de risc "
+    "(Critic → Moderat), apoi scorul modelului; la risc egal, o implicare "
+    "(Studentship) mai scăzută urcă în prioritate.":
+        "Students are ordered by intervention urgency: risk level first "
+        "(Critical → Moderate), then the model score; at equal risk, lower "
+        "engagement (Studentship) moves up the list.",
+    "Nivel de risc": "Risk level",
+    "Scor": "Score",
+    "Urgență": "Urgency",
+    "Implicare": "Engagement",
+    "Factori principali": "Main factors",
+    "Scorurile și explicațiile provin dintr-un model XGBoost real cu atribuiri "
+    "SHAP autentice. Acest raport sintetizează evaluările individuale; pentru "
+    "fiecare elev există un raport detaliat separat.":
+        "Scores and explanations come from a real XGBoost model with genuine "
+        "SHAP attributions. This report summarizes the individual assessments; "
+        "a separate detailed report exists for each student.",
     # --- performance metrics dialog ---
     "Metrici de performanță": "Performance metrics",
     "Metrici de performanță pe rulare": "Per-run performance metrics",
@@ -468,6 +630,58 @@ _TEMPLATES: dict[str, str] = {
         "⚠️ Secure storage is unavailable on this system. You can use the "
         "{env_var} environment variable instead.",
     "{phase} ({done}/{total})": "{phase} ({done}/{total})",
+    # --- report: SHAP / LIME / NLP body text ---
+    "Scor model: {score:.0f}%": "Model score: {score:.0f}%",
+    "Contribuția fiecărui factor la scorul final, în puncte procentuale "
+    "(roșu = crește riscul, verde = reduce riscul). Suma contribuțiilor + "
+    "valoarea de bază ({base:.3f}) = probabilitatea modelului.":
+        "Each factor's contribution to the final score, in percentage points "
+        "(red = raises risk, green = lowers risk). The sum of contributions + "
+        "the base value ({base:.3f}) = the model's probability.",
+    "<b>{label}</b> — crește riscul cu <b>+{points:.1f} pp</b> "
+    "(valoare: {value})":
+        "<b>{label}</b> — raises the risk by <b>+{points:.1f} pp</b> "
+        "(value: {value})",
+    "Scor stres emoțional (feature model): <b>{score:.2f}</b> / 2.0":
+        "Emotional stress score (model feature): <b>{score:.2f}</b> / 2.0",
+    "Valență: {valence:+.2f}": "Valence: {valence:+.2f}",
+    "Probabilitate model: {probability:.3f} • valoare de referință "
+    "(bază SHAP): {base:.3f} • model: {version}":
+        "Model probability: {probability:.3f} • reference value (SHAP base): "
+        "{base:.3f} • model: {version}",
+    "Fidelitatea explicației locale: {label}":
+        "Local explanation fidelity: {label}",
+    "(R² = {r2:.2f} pe {samples} perturbări)":
+        "(R² = {r2:.2f} over {samples} perturbations)",
+    "Modelul local aproximează probabilitatea la <b>{local:.3f}</b>, față de "
+    "<b>{actual:.3f}</b> cât indică modelul real (diferență: {gap:.3f}). Cu "
+    "cât R² este mai mic și diferența mai mare, cu atât regulile de mai sus "
+    "trebuie citite mai prudent — decizia rămâne a cadrului didactic.":
+        "The local model approximates the probability at <b>{local:.3f}</b>, "
+        "against <b>{actual:.3f}</b> from the real model (difference: "
+        "{gap:.3f}). The lower the R² and the larger the difference, the more "
+        "cautiously the rules above should be read — the decision remains the "
+        "teacher's.",
+    "Completează datele elevului în stânga și apasă <b>„Evaluează riscul”</b>.":
+        "Fill in the student's data on the left and press "
+        "<b>“Assess risk”</b>.",
+    "Sursă: {source}": "Source: {source}",
+    "Implicare: creșterea scorului Studentship de la <b>{current:g}/10</b> la "
+    "<b>{target:g}/10</b>.":
+        "Engagement: raise the Studentship score from <b>{current:g}/10</b> to "
+        "<b>{target:g}/10</b>.",
+    '<b>{count}</b> elevi <span style="color:#888;">({pct:.0f}%)</span>':
+        '<b>{count}</b> students <span style="color:#888;">({pct:.0f}%)</span>',
+    # --- report: critical indicators carrying numbers ---
+    "Absenteism cronic ({count} absențe nemotivate / 3 luni)":
+        "Chronic absenteeism ({count} unexcused absences / 3 months)",
+    "Absențe nemotivate ridicate ({count} / 3 luni)":
+        "High unexcused absences ({count} / 3 months)",
+    "Implicare (Studentship) foarte scăzută ({score:g}/10)":
+        "Very low engagement (Studentship) ({score:g}/10)",
+    "Medie sub pragul de promovare ({average:g})":
+        "Average below the pass threshold ({average:g})",
+    "Note multiple sub 5 ({count})": "Multiple grades below 5 ({count})",
     "Latența, tokenii (raportați de furnizor) și costul derivat pentru fiecare "
     "apel de generare a planului, plus defalcarea pe etape a pipeline-ului "
     "local (NLP, predicție, SHAP, LIME, randare PDF). Costul este calculat "
