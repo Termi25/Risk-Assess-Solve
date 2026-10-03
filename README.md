@@ -1,240 +1,136 @@
 # Student Risk Assessment & Intervention Planner
 
-A Windows desktop application that helps teachers identify students at risk of academic disengagement or dropout, and generates personalized, explainable intervention plans. The app is designed for non-technical users and runs almost entirely offline, with a single external call to an LLM API for generating human-readable action plans.
+A Windows desktop application (proof of concept) that helps teachers identify students at risk of school dropout and drafts explainable intervention plans. Scoring and explanation run entirely on the machine; the only network call is an optional request to an LLM (Gemini or Claude) that turns the already-computed result into a written plan.
+
+> **Research prototype.** The classifier is trained on **synthetic data**, not on real student records (see [Training data](#training-data-synthetic)). Its scores and explanations demonstrate that the pipeline works; they are not evidence about the real causes of dropout and must not be used on their own to make decisions about students.
 
 ## Overview
 
-Teachers enter short qualitative observations and structured data about a student (attendance, grades, family context, school attitude). The app combines this data through a local scoring pipeline — NLP sentiment/valence analysis, a weighted risk model, and explainability analysis — to produce:
+A teacher fills in a 17-question questionnaire for a student, or imports a batch of Google Forms responses (`.xlsx`). The app then:
 
-- **An aggregate risk score** and a set of interpretable **sub-scores**
-- **A transparent explanation** of which factors drove the score, and by how much
-- **A suggested action plan**, written in plain language, proposing concrete steps to support the student
+1. derives the model features from the answers, including a **Studentship** engagement score and an **emotional-stress** score from the free-text answers;
+2. scores the student with an **XGBoost** classifier, giving `P(dropout)` and one of four **risk tiers**;
+3. explains the score with **SHAP** (additive decomposition) and **LIME** (local rule list, with its fit quality);
+4. drafts a **"Proiectul Podul" intervention plan**, through the cloud LLM if a key is configured, otherwise from a local template;
+5. exports a 4-page **PDF report** per student, plus a **group report** that ranks a batch of students by urgency.
 
-The goal is to give teachers something they can trust and act on — not a black-box number, but a score paired with a clear, evidence-based reason.
-
-## Why this architecture
-
-Because this app evaluates real students using sensitive personal and family data, the design keeps as much processing on-device as possible. The only data that ever leaves the machine is the already-computed score and its explanation — sent to an LLM API purely to turn that structured result into readable text. No raw student records, qualitative text, or personal identifiers need to cross the network.
+Every result is decision support for a teacher to review, not an automated decision.
 
 ## Architecture
 
 ```mermaid
 flowchart TD
-    subgraph LOCAL["Windows desktop app — runs fully offline"]
-        GUI["Desktop GUI<br/>PyQt / Tkinter"]
-        NLP["NLP engine<br/>BERT via ONNX"]
-        SCORE["Scoring engine<br/>weights + rules"]
-        XAI["Explainability<br/>SHAP / LIME"]
-        DB["Local database<br/>SQLite, encrypted at rest"]
+    subgraph LOCAL["Windows desktop app — everything here runs offline"]
+        GUI["Desktop GUI<br/>PySide6 (Qt 6)"]
+        XLSX["Google Forms import<br/>openpyxl"]
+        NLP["NLP<br/>lexicon-based (BERT stand-in)"]
+        SCORE["Scoring<br/>XGBoost + risk tiers"]
+        XAI["Explainability<br/>SHAP + LIME"]
+        REP["Reports<br/>PDF per student + group report"]
+        DB["Local database<br/>SQLite (not encrypted)"]
 
-        GUI --> NLP
-        NLP --> SCORE
-        SCORE --> XAI
-        GUI --> DB
+        XLSX --> GUI
+        GUI --> NLP --> SCORE --> XAI --> REP
         SCORE --> DB
-        XAI --> DB
     end
 
-    API["Cloud LLM API<br/>generates action plan"]
+    API["Cloud LLM (optional)<br/>Gemini or Claude"]
+    TPL["Local plan template<br/>(fallback)"]
 
-    XAI -->|"aggregate score + explanation"| API
-    API -->|"action plan text"| GUI
+    XAI -->|"score, tier, SHAP,<br/>de-identified features"| API
+    API -->|"plan text"| REP
+    XAI --> TPL --> REP
 ```
 
 ### Components
 
-| Component | Responsibility | Notes |
+| Component | Code | What it does |
 |---|---|---|
-| **Desktop GUI** | Collects teacher input, displays scores and action plans | Only layer that interacts with the user directly |
-| **NLP engine** | Extracts emotional valence and qualitative risk signals from free-text observations | BERT model exported to ONNX for smaller footprint and faster local inference |
-| **Scoring engine** | Combines NLP output and structured factors into sub-scores and an aggregate score | Pure local logic; no external calls |
-| **Explainability** | Attributes the score to individual factors using SHAP/LIME | Runs against the scoring engine's real inputs/outputs — not simulated by an LLM |
-| **Local database** | Persists students, reports, grades, absences, family situations, and evaluations | SQLite, encrypted at rest |
-| **Cloud LLM API** | Converts the numeric score + SHAP/LIME explanation into a written action plan | The only network-dependent step; app remains functional (minus this step) if offline |
+| **Desktop GUI** | [app/ui/](app/ui/) | PySide6 window: questionnaire, result panel, plan pane, menus (questionnaire import, settings, model, performance, appearance, help) |
+| **Questionnaire import** | [app/excel_import.py](app/excel_import.py) | Reads the Google Forms `.xlsx` export and maps each answer to the questionnaire keys |
+| **NLP** | [app/nlp_engine.py](app/nlp_engine.py) | Romanian **lexicon** valence analyzer (47 negative / 24 positive weighted terms, 3-token negation window) producing `Stres_Emotional_NLP` in `[0, 2]`. A stand-in with the same contract as the BERT/ONNX model of the original design |
+| **Scoring** | [app/scoring_engine.py](app/scoring_engine.py) | Derives the model features, trains or loads the XGBoost classifier (SMOTE-NC on the training split), returns `P(dropout)` |
+| **Risk tiers** | [app/explainability.py](app/explainability.py), [app/config.py](app/config.py) | Maps the probability to *Scăzut / Mediu / Ridicat / Critic* (Low / Medium / High / Critical) plus one escalation rule; see [Risk tiers](#risk-tiers) |
+| **Explainability** | [app/explainability.py](app/explainability.py), [app/lime_explainer.py](app/lime_explainer.py) | SHAP (permutation explainer, probability space) and LIME, both run on the real model |
+| **Plan generation** | [app/llm_client.py](app/llm_client.py) | Cloud plan via Gemini or Claude, optionally grounded in a knowledge-base `.docx`; local template when there is no key or no network |
+| **Reports** | [app/ui/report.py](app/ui/report.py) | Per-student PDF (input data; risk profile with SHAP, LIME and NLP; plan; success indicators) and the group prioritization report |
+| **Local database** | [app/database.py](app/database.py) | SQLite store of cases and evaluations, **unencrypted** in this prototype |
+| **Metrics** | [app/metrics.py](app/metrics.py), [app/model_report.py](app/model_report.py) | Model-evaluation figures and per-call LLM latency and cost tracking |
 
-## Data model
+## Training data (synthetic)
 
-### Class diagram
+No Romanian dataset currently links early indicators to later dropout, so the classifier is trained on **2,800 synthetic profiles** generated by `generate_synthetic_dataset()` ([app/scoring_engine.py](app/scoring_engine.py)) with NumPy's `default_rng(seed=42)`:
 
-```mermaid
-classDiagram
-    class Person{
-        +String name
-        +String surname
-        +Date birthDate
-        +String gender
-        +String schoolName
-    }
+1. **Features** are drawn independently from plausible distributions (absences from a right-skewed gamma, module average from `N(7.1, 1.4)`, categorical answers from fixed proportions). `Studentship_Score` and `Stres_Emotional_NLP` are then *computed* from the other answers, the same way the app computes them for a real student.
+2. **Labels** come from a **hand-specified logistic model**: `P(dropout) = σ(z)`, where `z` is a weighted sum of the features with author-set coefficients (`_RISK_LOGIT`): a saturating term for unexcused absences, the deviation of the average from 6.5, Studentship, attitude, participation, sanctions, perceived support, NLP stress, family situation, parental education and age above 16. Each label is then sampled as `Bernoulli(P)`. Prevalence is about 22.6%.
 
-    class Student{
-        +int currentStudentGrade
-        +bool isUrban
-    }
+What this means:
 
-    class Teacher{
-        +String teachingSubject
-    }
+- **The model learns the generator, not reality.** SHAP and LIME explain how the classifier approximates `_RISK_LOGIT`. They are not empirically estimated risk factors.
+- **The ceiling is known.** Because labels are sampled, even a perfect model reaches only ROC-AUC ≈ 0.87 on the hold-out set; XGBoost reaches ≈ 0.83 (5-fold CV 0.82 ± 0.02).
+- **Training is deterministic** for a given `--samples` and `--seed`: the same seed always gives the same model, whatever date appears in its version string.
 
-    class FamilySituation{
-        +Date recordedDate
-        +String familySitType
-        +String familySitDescription
-        +String motherEducationLevel
-        +String fatherEducationLevel
-    }
+To use real data, replace `generate_synthetic_dataset()` with a loader that returns the same columns and a real `Abandon` label, then retrain.
 
-    class Grade{
-        +int studentGradeLevel
-        +String subjectName
-        +float gradeValue
-        +String moduleName
-        +Date dateRecorded
-    }
+## Risk tiers
 
-    class Absence{
-        +Date recordedDate
-        +bool isMotivated
-    }
+The tier comes from the **XGBoost probability**, plus one escalation rule. No other rule assigns tiers.
 
-    class Report{
-        +Date creationDate
-        +String extraCurricular
-        +int schoolAttitude
-        +int noSanctionsLastYear
-        +String generalSchoolFeeling
-        +String extraInfo
-        +float schoolHelpfulScore
+| Tier (RO / EN) | Colour | Urgency | Rule |
+|---|---|---|---|
+| Scăzut / Low | Green | Monitorizare / Monitoring | `P < 0.20` |
+| Mediu / Medium | Yellow | Medie / Medium | `0.20 ≤ P < 0.42` |
+| Ridicat / High | Orange | Ridicată / High | `0.42 ≤ P < 0.65` |
+| Critic / Critical | Red | Maximă / Maximum | `P ≥ 0.65`, **or** a High case with ≥ 3 severe factors |
 
-        +createNewReport(Teacher, Student) Report
-    }
+The severe factors are: ≥ 20 unexcused absences (3 months), an average below 5, Studentship ≤ 2, disciplinary *sanctions*, and reported stress or isolation (or NLP stress ≥ 1.3). Escalation applies only to High cases. The thresholds sit at break-points of the synthetic model's score distribution; they are not validated cut-offs. SMOTE-NC balances the training set to 50/50, so probabilities run higher than the 22.6% base rate.
 
-    class RiskEvaluation{
-        +float aggregateScore
-        +String shapExplanationJson
-        +String actionPlanText
+Until October 2026 the lowest tier was called *Moderat*; evaluations saved under that name are displayed as *Scăzut / Low*.
 
-        +compileScores() RiskEvaluation
-    }
+## Questionnaire and model features
 
-    class SubScore{
-        +String scoreName
-        +float scoreValue
-    }
+The model uses 17 features, derived from the questionnaire by `compose_model_features()`:
 
-    Person <|-- Student
-    Person <|-- Teacher
-    Student "1" --> "*" FamilySituation : has
-    Student "1" --> "*" Absence : has
-    Teacher "1" --> "*" Absence : recordedBy
-    Student "1" --> "*" Grade : has
-    Student "1" --> "*" Report : reportingStudent
-    Teacher "1" --> "*" Report : reportingTeacher
-    Report "1" --> "1" RiskEvaluation : evaluation
-    RiskEvaluation "1" --> "*" SubScore : subScores
+| Model feature | Source |
+|---|---|
+| `Age_Years` | Computed from the date of birth |
+| `Sex`, `Mediu_Rezidential`, `Situatie_Familiala`, `Educatie_Mama`, `Educatie_Tata` | Questions 5–8 |
+| `Absente_Nemotivate_Zilele_1_13` | Question 9: unexcused absences **in the last 3 months**. Despite its name, this column does **not** hold Day 1–13 absences; the name is kept so saved models stay compatible |
+| `Absente_Motivate_3_Luni` | Question 10: excused absences in the last 3 months |
+| `Participare_Extrascolara`, `Medie_Modul_Anterior` | Questions 11–12 |
+| `Note_Sub_5` | Question 13, parsed: distinct numeric grades below 5, or the number of *Insuficient* marks (primary school). *Suficient* counts as passing |
+| `Atitudine_Scoala`, `Sanctiuni_Avertismente`, `Cum_te_Simti_La_Scoala`, `Scoala_Ajuta_Obiective` | Questions 14–17 |
+| `Studentship_Score` | Computed from the answers; see [per-student metrics](#2-per-student-scoring-metrics-what-does-one-students-report-say) |
+| `Stres_Emotional_NLP` | Computed by the lexicon NLP from the free-text answers |
+
+## Data storage
+
+SQLite at `%LOCALAPPDATA%\RiskSolvingApp\risk_app.db`, with two tables:
+
+| Table | Contents |
+|---|---|
+| `student_cases` | Name, surname, school, class, urban flag, free-text observation, all questionnaire answers (`features_json`) |
+| `risk_evaluations` | Probability, 0–100 score, risk tier, SHAP base value and attributions, sub-scores, plan text and its source, model version |
+
+The same folder holds `settings.json` (theme, language, LLM provider, knowledge-base text), `metrics_runs.jsonl` (LLM call metrics) and, if the app ever trained a model itself, `risk_model.json`.
+
+**Which model is used.** The app loads, in order: (1) the model bundled in the exe (`app/artifacts/`); (2) a model previously trained into `%LOCALAPPDATA%\RiskSolvingApp`; (3) otherwise it trains one and caches it there. *Model → Reantrenează modelul* forces a fresh training run.
+
+## Running and building
+
+```bash
+py -3.12 -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements-dev.txt
+python train.py                               # optional: train the bundled model, print metrics
+python run.py                                 # launch the app
+python -m pytest -q                           # run the tests
+pyinstaller --noconfirm RiskSolvingApp.spec   # build dist/RiskSolvingApp.exe
 ```
 
-### Entity-relationship diagram
+The exe bundles the model in `app/artifacts/`, so run `python train.py` before packaging if that folder is empty. The GitHub Actions workflow ([.github/workflows/build.yml](.github/workflows/build.yml)) runs the tests, trains the model, builds the exe and uploads it as a build artifact.
 
-```mermaid
-erDiagram
-    PERSON ||--o| STUDENT : "is a"
-    PERSON ||--o| TEACHER : "is a"
-    STUDENT ||--o{ REPORT : "reporting_student"
-    TEACHER ||--o{ REPORT : "reporting_teacher"
-    STUDENT ||--o{ FAMILY_SITUATION : "has"
-    STUDENT ||--o{ ABSENCE : "has"
-    TEACHER ||--o{ ABSENCE : "recorded_by"
-    STUDENT ||--o{ GRADE : "has"
-    REPORT ||--|| RISK_EVALUATION : "evaluation"
-    RISK_EVALUATION ||--o{ SUB_SCORE : "sub_scores"
-
-    PERSON {
-        int person_id PK
-        string name
-        string surname
-        date birth_date
-        string gender
-        string school_name
-    }
-
-    STUDENT {
-        int student_id PK
-        int person_id FK
-        int current_student_grade
-        bool is_urban
-    }
-
-    TEACHER {
-        int teacher_id PK
-        int person_id FK
-        string teaching_subject
-    }
-
-    FAMILY_SITUATION {
-        int family_situation_id PK
-        int student_id FK
-        date recorded_date
-        string family_sit_type
-        string family_sit_description
-        string mother_education_level
-        string father_education_level
-    }
-
-    GRADE {
-        int grade_id PK
-        int student_id FK
-        int student_grade_level
-        string subject_name
-        float grade_value
-        string module_name
-        date date_recorded
-    }
-
-    REPORT {
-        int report_id PK
-        date creation_date
-        int student_id FK
-        int teacher_id FK
-        string extra_curricular
-        int school_attitude
-        int no_sanctions_last_year
-        string general_school_feeling
-        string extra_info
-        float school_helpful_score
-    }
-
-    ABSENCE {
-        int absence_id PK
-        int student_id FK
-        int teacher_id FK
-        date recorded_date
-        bool is_motivated
-    }
-
-    RISK_EVALUATION {
-        int risk_evaluation_id PK
-        int report_id FK
-        float aggregate_score
-        string shap_explanation_json
-        string action_plan_text
-    }
-
-    SUB_SCORE {
-        int sub_score_id PK
-        int risk_evaluation_id FK
-        string score_name
-        float score_value
-    }
-```
-
-### Design notes
-
-- `Person` is a shared base for `Student` and `Teacher` to avoid duplicating name/birth date/gender fields.
-- `FamilySituation`, `Absence`, and `Grade` all belong to `Student` directly (not `Report`), since they represent ongoing facts about the student rather than data generated by a single report.
-- `FamilySituation` keeps a full history (one-to-many) rather than storing only the current state, so changes over time remain queryable.
-- "Lowest grade subjects" and "previous module grade" are **not stored** — both are computed at evaluation time by querying `Grade`, avoiding data that can drift out of sync with the source of truth.
-- `Absence` records both the student and the recording teacher, since a teacher — not the student — logs each absence.
-- `RiskEvaluation` and `SubScore` are kept separate from `Report`: `Report` holds only the raw input collected from a teacher; `RiskEvaluation` holds the computed, explainable output.
+For the cloud plan, open *Setări / Settings*, choose Gemini or Claude and enter an API key; it is stored in the Windows Credential Manager. *Setări → Bază de cunoștințe (.docx)* attaches a methodology document whose text grounds the cloud prompt.
 
 ## Explainability approach
 
@@ -302,8 +198,10 @@ Values reaching the model are still never translated — a SHAP row reads `Attit
 
 ## Privacy & data handling
 
-- All student data is stored locally in a SQLite database (see the implementation-status note — encryption at rest is not yet implemented).
-- Only the aggregate score, sub-scores, and SHAP explanation are sent to the external LLM API — no raw qualitative text or personally identifying information.
+- All student data is stored locally in a SQLite database. It is **not encrypted at rest** in this prototype.
+- With a cloud provider configured, the request contains: the score and risk tier, the sub-scores, the SHAP attributions, a **de-identified** summary of the model features (see below), and the text of the knowledge-base document if one is attached.
+- It never contains the name, school, date of birth, the head teacher's free-text observation, or the free-text "other / details" answers. Those are used only by the local plan.
+- **Known gap:** the SHAP section of the request lists the top 6 drivers *with their values*. When age, sex, family situation or a parent's education ranks among them, its exact value is sent, even though the questionnaire section below coarsens or drops it. Filtering these features out of the SHAP lines would close the gap.
 
 ### Quasi-identifier reduction in the cloud payload
 
@@ -318,6 +216,7 @@ Direct identifiers were never sent. But age + sex + family situation + both pare
 | Residential environment | `Rural` | *kept* | Only 2 values, and it drives a real intervention (transport / digital access for commuting students) |
 
 The index reuses the model's own `_EDUCATION_RISK` coefficients, so the number the LLM sees is the same quantity that drove the prediction. **The local plan keeps full detail** — it never leaves the machine and is read by a teacher who already knows the student. `_questionnaire_context_lines` defaults to the de-identified form so a caller that forgets the flag gets the safe payload rather than a leak, and [tests/test_deidentification.py](tests/test_deidentification.py) pins the whole contract.
+
 - API keys are stored via the OS credential manager, not in plaintext configuration files.
 - Generated action plans are intended as decision support for a teacher to review, not as an automated decision.
 
@@ -365,14 +264,27 @@ Both LLM SDKs are imported **lazily**. With no key configured, or offline, the a
 | `pytest` | `>=8.0` | Test suite in [tests/](tests/) |
 | `pyinstaller` | `>=6.6` | Packages the single-file Windows executable via [RiskSolvingApp.spec](RiskSolvingApp.spec) |
 
-### Implementation status vs. the design above
+### Known limitations and differences from the research design
 
-Two items in the architecture diagram remain design intent rather than shipped code, and are documented honestly here:
+The research design (and the accompanying manuscript) describes several things the prototype does not do yet. They are listed here so nobody mistakes design intent for shipped behaviour.
 
-- **NLP engine** — the design calls for BERT exported to ONNX. The proof-of-concept instead ships a transparent **lexicon-based Romanian valence analyzer** ([app/nlp_engine.py](app/nlp_engine.py)) with the same return contract, so a real ONNX model can replace `analyze()` without touching anything downstream. Note that `Stres_Emotional_NLP` is a *trained* model feature, so a real NLP swap shifts its distribution and requires retraining.
-- **Local database** — SQLite is currently stored **unencrypted**; a production build would layer SQLCipher or OS-level encryption (see the note in [app/database.py](app/database.py)).
+| Design element | What the prototype does |
+|---|---|
+| Model trained on real school data | Trained on **synthetic** profiles with hand-specified labels; see [Training data](#training-data-synthetic) |
+| BERT (ONNX) for teacher notes | **Lexicon-based** Romanian analyzer with the same contract ([app/nlp_engine.py](app/nlp_engine.py)). `Stres_Emotional_NLP` is a trained feature, so swapping in a real model shifts its distribution and requires retraining |
+| Day 14 assessment from Day 1–13 data | No date window. Absences are the **last 3 months** (question 9), even though the column is named `…_Zilele_1_13` |
+| Rule-based tiers (average < 6 → Medium, < 5 → High, > 10 Day 14 absences → Critical) | Not implemented. Tiers come from the probability bands plus one escalation rule; see [Risk tiers](#risk-tiers) |
+| Studentship as a teacher-rated 5-item scale (task completion, preparedness, peer interaction, teacher responsiveness, participation) | **Computed** from the student questionnaire (participation, attitude, feeling, support, sanctions, minus absence and failing-grade penalties). None of the 5 items is collected |
+| Alerts capped at the school's capacity (top 10–15%) | Not implemented. The group report **ranks** students by tier, then score, but caps nothing |
+| Reassessment every 14 days | The plan's success indicators run over **4 weeks**; there is no automatic reassessment |
+| Encrypted local database | SQLite **unencrypted**; a production build would add SQLCipher or OS-level encryption |
 
-**Explainability is implemented in full**, with SHAP and LIME answering deliberately different questions — see below.
+Model behaviour to be aware of:
+
+- **Counter-intuitive attributions.** Because `Studentship_Score` is itself computed from absences, failing grades, feelings and attitude, the classifier redistributes credit among these correlated inputs. For example, *zero* failing grades raises the predicted risk slightly, and five failing grades lowers it. These are artifacts of the synthetic data, not findings. Monotonic constraints in XGBoost and an engagement-only Studentship score would remove them.
+- **Seed sensitivity.** The model is deterministic for seed 42, but individual case probabilities vary with the seed: across 30 seeds, cases near a threshold change tier. Averaging models trained on several seeds would make tiers stable.
+
+Explainability (SHAP and LIME on the real model) is implemented in full; see [Explainability approach](#explainability-approach).
 
 ## Metrics
 
@@ -408,12 +320,12 @@ Computed in `train_model()` in [app/scoring_engine.py](app/scoring_engine.py) an
 |---|---|
 | **P(dropout)** | `XGBClassifier.predict_proba(X)[0, 1]` on the encoded feature row |
 | **Aggregate score** | `round(P × 100, 1)` — the 0–100 headline number |
-| **Risk tier** | Probability bands: *Moderat* ≥ 0.00, *Mediu* ≥ 0.20, *Ridicat* ≥ 0.42, *Critic* ≥ 0.65. A *Ridicat* case is **escalated to Critic** when ≥ 3 severe factors compound (extreme absences, average below 5, engagement ≤ 2/10, active sanctions, or crisis-level emotional stress) |
+| **Risk tier** | Probability bands: *Scăzut* (Low) ≥ 0.00, *Mediu* ≥ 0.20, *Ridicat* ≥ 0.42, *Critic* ≥ 0.65. A *Ridicat* case is **escalated to Critic** when ≥ 3 severe factors compound (extreme absences, average below 5, engagement ≤ 2/10, active sanctions, or crisis-level emotional stress) |
 | **SHAP attributions** | Permutation explainer over `predict_proba` in **probability space**, against a 200-row background sample. Additive by construction: `base_value + Σ shap_values ≈ P(dropout)`, so "+18 points" is a true decomposition of the model's real output |
 | **Sub-scores** | Each feature maps to a domain (frequency, academic performance, family context, …); a domain's sub-score is its share of total attribution magnitude: `Σ\|shap\| within domain / Σ\|shap\| overall × 100`. Sums to ~100 |
 | **LIME local profile** | Local surrogate over 5000 proximity-weighted perturbations of the student's row, fitted with a sparse linear model; reports up to 8 rules. Seeded (`RANDOM_SEED`) for reproducibility. Marginal cost ≈ 22 ms/student |
 | **LIME fidelity (R²)** | The surrogate's coefficient of determination over that perturbed neighbourhood, banded for display: ≥ 0.70 *bună*, ≥ 0.40 *moderată*, else *slabă*. Shown alongside `local_gap = \|local_prediction − model_probability\|` so surrogate divergence is visible |
-| **Studentship score** | Composite in `[0, 10]`: `+0–2` each for extracurricular participation, attitude, how they feel at school, perceived support, and absence of sanctions; then penalties `−min(2, unexcused/12) − min(1, excused/20) − min(2, grades_below_5/3)` |
+| **Studentship score** | Questionnaire-derived proxy (not the teacher-rated scale of the research design), in `[0, 10]`: `+0–2` each for extracurricular participation, attitude, how they feel at school, perceived support, and absence of sanctions; then penalties `−min(2, unexcused/12) − min(1, excused/20) − min(2, grades_below_5/3)` |
 | **Emotional stress (NLP)** | Weighted lexicon hits with a 3-token negation window, squashed into `[0, 2]` by `2 · (1 − 1/(1 + raw))`. Valence = `(pos − neg) / (pos + neg)` in `[−1, 1]` |
 
 ### 3. LLM performance metrics (what does the cloud step cost?)
