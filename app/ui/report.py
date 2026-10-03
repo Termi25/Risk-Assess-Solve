@@ -63,7 +63,7 @@ def _bar_cell(width_px: int, color: str, cell_px: int = _MAX_BAR_PX) -> str:
 
 
 def _studentship_color(score: float) -> str:
-    """Green/amber/red by engagement level (low engagement = red)."""
+    """Green/amber/red by Studentship score (a low score = red)."""
     if score <= 3.0:
         return _POS_COLOR
     if score <= 6.0:
@@ -72,14 +72,14 @@ def _studentship_color(score: float) -> str:
 
 
 def _studentship_gauge_html(score: float) -> str:
-    """A horizontal gauge for the Studentship (engagement) score, out of 10."""
+    """A horizontal gauge for the Studentship score, out of 10."""
     score = max(0.0, min(10.0, float(score)))
     color = _studentship_color(score)
     fill = int(round(score / 10.0 * _MAX_BAR_PX))
     return (
         '<table cellspacing="0" cellpadding="2"><tr>'
         f'<td width="150" style="font-size:10pt;">'
-        f'<b>{escape(tr("Scor Studentship (implicare)"))}</b></td>'
+        f'<b>{escape(tr("Scor Studentship"))}</b></td>'
         f'<td width="{_MAX_BAR_PX + 4}">'
         f'<table cellspacing="0" cellpadding="0" bgcolor="{_TRACK_COLOR}"><tr>'
         f'<td width="{max(2, fill)}" bgcolor="{color}">&nbsp;</td>'
@@ -87,6 +87,31 @@ def _studentship_gauge_html(score: float) -> str:
         "</tr></table></td>"
         f'<td width="60" align="right"><b>{score:g}/10</b></td>'
         "</tr></table>"
+    )
+
+
+_STUDENTSHIP_NOTE = (
+    "Notă: scorul Studentship este calculat din răspunsurile la chestionar "
+    "(participare extrașcolară, atitudine, cum se simte la școală, sprijin "
+    "perceput, sancțiuni), cu penalizări pentru absențe și note sub 5. Nu este "
+    "scala Studentship evaluată de profesor (prezență cognitivă și socială) "
+    "descrisă în cadrul de cercetare."
+)
+
+
+def _studentship_note_html() -> str:
+    """States what the prototype's Studentship score is, and what it is not.
+
+    The research framework defines Studentship as a teacher-rated scale of
+    cognitive and social presence; the prototype has no such ratings and
+    approximates it from the questionnaire (``scoring_engine._studentship_score``).
+    The report says so wherever the score is shown, so the number is not read
+    as the validated construct.
+    """
+    return (
+        '<p style="color:#555; font-size:7.5pt; margin:2px 0 4px 0;">'
+        + escape(tr(_STUDENTSHIP_NOTE))
+        + "</p>"
     )
 
 
@@ -194,7 +219,7 @@ def _risk_profile_html(ev: RiskEvaluation) -> str:
         "</td>"
     )
 
-    # Right: urgency, engagement gauge and the main risk indicators.
+    # Right: urgency, Studentship gauge (with its scope note) and the main risk indicators.
     parts.append('<td valign="top">')
     parts.append(
         f'<p style="font-size:10pt; margin:0 0 4px 0;">'
@@ -202,6 +227,7 @@ def _risk_profile_html(ev: RiskEvaluation) -> str:
         f'<span style="color:{tier.color};">●</span> {escape(tr_band(ev.urgency))}</p>'
     )
     parts.append(_studentship_gauge_html(ev.studentship_score))
+    parts.append(_studentship_note_html())
     parts.append(
         f'<p style="font-size:10pt; margin:6px 0 2px 0;">'
         f'<b>{escape(tr("Indicatori principali de risc:"))}</b></p>'
@@ -571,7 +597,7 @@ def _plan_html(plan_text: str, source: str) -> str:
     parts.append(_section_title(tr("Plan personalizat de intervenție")))
     parts.append(
         '<p style="color:#555; font-size:9pt;">'
-        + escape(tr("Contract de implicare al elevului: „Proiectul Podul”."))
+        + escape(tr("Contract educațional al elevului: „Proiectul Podul”."))
         + "</p>"
     )
     if plan_text and plan_text.strip():
@@ -672,7 +698,7 @@ def _success_indicators_html(ev: RiskEvaluation, section_md: str = "") -> str:
             '<ul style="margin:0; font-size:10pt;">'
             f"<li>{escape(tr('Absențe: sub 2 absențe nemotivate pe săptămână.'))}</li>"
             "<li>"
-            + trf("Implicare: creșterea scorului Studentship de la "
+            + trf("Studentship: creșterea scorului de la "
                   "<b>{current:g}/10</b> la <b>{target:g}/10</b>.",
                   current=current, target=target)
             + "</li><li>"
@@ -852,7 +878,7 @@ def _priority_table_html(entries: list[tuple[StudentCase, RiskEvaluation]]) -> s
             f'<td style="color:#ffffff; font-size:8pt;"><b>{escape(h)}</b></td>'
             for h in (
                 "#", tr("Elev"), tr("Clasa"), tr("Nivel de risc"), tr("Scor"),
-                tr("Urgență"), tr("Implicare"), tr("Factori principali"),
+                tr("Urgență"), tr("Studentship"), tr("Factori principali"),
             )
         )
         + "</tr>"
@@ -882,7 +908,7 @@ def _priority_table_html(entries: list[tuple[StudentCase, RiskEvaluation]]) -> s
         + '<p style="color:#555; font-size:9pt;">'
         + escape(tr("Elevii sunt ordonați după urgența intervenției: mai întâi "
                     "nivelul de risc (Critic → Scăzut), apoi scorul modelului; "
-                    "la risc egal, o implicare (Studentship) mai scăzută urcă în "
+                    "la risc egal, un scor Studentship mai scăzut urcă în "
                     "prioritate."))
         + "</p>"
         '<table width="100%" cellpadding="6" cellspacing="0" border="1" '

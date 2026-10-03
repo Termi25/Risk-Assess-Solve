@@ -133,3 +133,17 @@ def test_fidelity_panel_colours_the_cell_not_the_table(report_html):
 
     html, _ = report_html
     assert re.search(r'<td bgcolor="#f2f4f7">\s*<span[^>]*><b>Fidelitatea', html)
+
+
+def test_report_names_the_construct_studentship_only(report_html):
+    """The report used "implicare" (engagement) and "Studentship" for the same
+    score, plus a separate "Implicare" domain; only "Studentship" remains."""
+    html, _ = report_html
+    assert "Implicare" not in html
+    assert "implicare" not in html
+    assert "Scor Studentship" in html
+
+
+def test_report_states_the_scope_of_the_studentship_score(report_html):
+    html, _ = report_html
+    assert "Nu este scala Studentship evaluată de profesor" in html

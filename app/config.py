@@ -285,7 +285,7 @@ FEATURES: tuple[Feature, ...] = (
     ),
     Feature(
         key="Studentship_Score",
-        label="Scor Studentship (implicare 0–10)",
+        label="Scor Studentship (0–10)",
         kind="numeric",
         minimum=0, maximum=10, step=1, default=6,
         help_text="Scor compozit derivat din participare, atitudine, școală și sancțiuni.",
@@ -402,6 +402,21 @@ LEGACY_BAND_NAMES: dict[str, str] = {"Moderat": "Scăzut"}
 def normalize_band(band: str) -> str:
     """Current name for a band, mapping legacy names (``Moderat`` -> ``Scăzut``)."""
     return LEGACY_BAND_NAMES.get(band, band)
+
+
+# Sub-score domain names used by earlier versions, still present in saved
+# evaluations. "Implicare" (engagement) was used both for extracurricular
+# participation and, as "Implicare (Studentship)", for the Studentship score;
+# the app now names the construct "Studentship" only.
+LEGACY_DOMAIN_NAMES: dict[str, str] = {
+    "Implicare": "Participare extrașcolară",
+    "Implicare (Studentship)": "Studentship",
+}
+
+
+def normalize_domain(name: str) -> str:
+    """Current name for a sub-score domain, mapping legacy names."""
+    return LEGACY_DOMAIN_NAMES.get(name, name)
 
 
 def tier_for_band(band: str) -> RiskTier:

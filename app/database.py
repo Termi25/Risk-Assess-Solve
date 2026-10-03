@@ -145,7 +145,10 @@ class Database:
             risk_band=config.normalize_band(row["risk_band"]), base_value=row["base_value"],
             urgency=config.tier_for_band(row["risk_band"]).urgency,
             attributions=[FeatureAttribution(**a) for a in json.loads(row["attributions_json"])],
-            sub_scores=[SubScore(**s) for s in json.loads(row["sub_scores_json"])],
+            sub_scores=[
+                SubScore(**{**s, "name": config.normalize_domain(s.get("name", ""))})
+                for s in json.loads(row["sub_scores_json"])
+            ],
             action_plan_text=row["action_plan_text"],
             action_plan_source=row["action_plan_source"],
             model_version=row["model_version"],

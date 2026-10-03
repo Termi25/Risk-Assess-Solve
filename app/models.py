@@ -141,7 +141,7 @@ class RiskEvaluation:
     risk_band: str                            # "Scăzut" | "Mediu" | "Ridicat" | "Critic"
     base_value: float                         # SHAP expected value (baseline P)
     urgency: str = ""                         # "Monitorizare" | "Medie" | "Ridicată" | "Maximă"
-    studentship_score: float = 0.0            # engagement score 0..10 (surfaced in the report)
+    studentship_score: float = 0.0            # Studentship score 0..10 (surfaced in the report)
     critical_indicators: list[str] = field(default_factory=list)  # short xAI risk statements
     attributions: list[FeatureAttribution] = field(default_factory=list)
     sub_scores: list[SubScore] = field(default_factory=list)

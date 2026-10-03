@@ -45,3 +45,25 @@ def test_schema_created_on_fresh_db(tmp_path):
         assert db.recent_assessments() == []
     finally:
         db.close()
+
+
+def test_legacy_domain_names_load_under_current_names(trained_model, tmp_path):
+    """Evaluations saved before the rename carry "Implicare" domains."""
+    model, _ = trained_model
+    case = _case()
+    features = dict(case.features)
+    features["Stres_Emotional_NLP"] = 1.5
+    ev = evaluate(model, features)
+
+    db = Database(tmp_path / "legacy.db")
+    try:
+        _, eval_id = db.save_assessment(case, ev)
+        legacy = [{"name": "Implicare", "value": 10.0},
+                  {"name": "Implicare (Studentship)", "value": 20.0}]
+        db.conn.execute("UPDATE risk_evaluations SET sub_scores_json = ? WHERE id = ?",
+                        (__import__("json").dumps(legacy), eval_id))
+        db.conn.commit()
+        _, loaded = db.load_evaluation(eval_id)
+        assert [s.name for s in loaded.sub_scores] == ["Participare extrașcolară", "Studentship"]
+    finally:
+        db.close()

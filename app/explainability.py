@@ -49,8 +49,8 @@ FEATURE_DOMAINS: dict[str, str] = {
     "Absente_Motivate_3_Luni": "Frecvență",
     "Medie_Modul_Anterior": "Performanță academică",
     "Note_Sub_5": "Performanță academică",
-    "Participare_Extrascolara": "Implicare",
-    "Studentship_Score": "Implicare (Studentship)",
+    "Participare_Extrascolara": "Participare extrașcolară",
+    "Studentship_Score": "Studentship",
     "Atitudine_Scoala": "Climat școlar",
     "Sanctiuni_Avertismente": "Climat școlar",
     "Cum_te_Simti_La_Scoala": "Climat școlar",
@@ -166,7 +166,7 @@ def compute_attributions(
 # escalated to "Critic" when enough severe factors compound (mirroring the
 # figure's CRITICAL alert: extreme absences + academic failure + disengagement).
 _SEVERE_UNEXCUSED = 20        # unexcused absences (3 luni) signalling a crisis
-_LOW_STUDENTSHIP = 2.0        # engagement at or below this is severe
+_LOW_STUDENTSHIP = 2.0        # a Studentship score at or below this is severe
 _ACADEMIC_FAIL = 5.0          # average below the pass threshold
 _CRISIS_STRESS = 1.3          # NLP emotional-stress level signalling a crisis
 
@@ -200,7 +200,7 @@ def _critical_indicators(mf: dict) -> list[str]:
 
     studentship = _num(mf.get("Studentship_Score"), 10.0)
     if studentship <= _LOW_STUDENTSHIP:
-        out.append(trf("Implicare (Studentship) foarte scăzută ({score:g}/10)",
+        out.append(trf("Scor Studentship foarte scăzut ({score:g}/10)",
                        score=studentship))
 
     medie = _num(mf.get("Medie_Modul_Anterior"), 10.0)
@@ -275,8 +275,8 @@ def _sub_scores(attributions: list[FeatureAttribution]) -> list[SubScore]:
         "Context familial",
         "Frecvență",
         "Performanță academică",
-        "Implicare",
-        "Implicare (Studentship)",
+        "Participare extrașcolară",
+        "Studentship",
         "Climat școlar",
         "Stare emoțională (NLP)",
     ]

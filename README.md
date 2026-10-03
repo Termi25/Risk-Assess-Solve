@@ -8,7 +8,7 @@ A Windows desktop application (proof of concept) that helps teachers identify st
 
 A teacher fills in a 17-question questionnaire for a student, or imports a batch of Google Forms responses (`.xlsx`). The app then:
 
-1. derives the model features from the answers, including a **Studentship** engagement score and an **emotional-stress** score from the free-text answers;
+1. derives the model features from the answers, including a **Studentship** score and an **emotional-stress** score from the free-text answers;
 2. scores the student with an **XGBoost** classifier, giving `P(dropout)` and one of four **risk tiers**;
 3. explains the score with **SHAP** (additive decomposition) and **LIME** (local rule list, with its fit quality);
 4. drafts a **"Proiectul Podul" intervention plan**, through the cloud LLM if a key is configured, otherwise from a local template;
@@ -274,14 +274,14 @@ The research design (and the accompanying manuscript) describes several things t
 | BERT (ONNX) for teacher notes | **Lexicon-based** Romanian analyzer with the same contract ([app/nlp_engine.py](app/nlp_engine.py)). `Stres_Emotional_NLP` is a trained feature, so swapping in a real model shifts its distribution and requires retraining |
 | Day 14 assessment from Day 1–13 data | No date window. Absences are the **last 3 months** (question 9), even though the column is named `…_Zilele_1_13` |
 | Rule-based tiers (average < 6 → Medium, < 5 → High, > 10 Day 14 absences → Critical) | Not implemented. Tiers come from the probability bands plus one escalation rule; see [Risk tiers](#risk-tiers) |
-| Studentship as a teacher-rated 5-item scale (task completion, preparedness, peer interaction, teacher responsiveness, participation) | **Computed** from the student questionnaire (participation, attitude, feeling, support, sanctions, minus absence and failing-grade penalties). None of the 5 items is collected |
+| Studentship as a teacher-rated 5-item scale (task completion, preparedness, peer interaction, teacher responsiveness, participation) | **Computed** from the student questionnaire (participation, attitude, feeling, support, sanctions, minus absence and failing-grade penalties). None of the 5 items is collected. Every report states this in a note under the Studentship gauge |
 | Alerts capped at the school's capacity (top 10–15%) | Not implemented. The group report **ranks** students by tier, then score, but caps nothing |
 | Reassessment every 14 days | The plan's success indicators run over **4 weeks**; there is no automatic reassessment |
 | Encrypted local database | SQLite **unencrypted**; a production build would add SQLCipher or OS-level encryption |
 
 Model behaviour to be aware of:
 
-- **Counter-intuitive attributions.** Because `Studentship_Score` is itself computed from absences, failing grades, feelings and attitude, the classifier redistributes credit among these correlated inputs. For example, *zero* failing grades raises the predicted risk slightly, and five failing grades lowers it. These are artifacts of the synthetic data, not findings. Monotonic constraints in XGBoost and an engagement-only Studentship score would remove them.
+- **Counter-intuitive attributions.** Because `Studentship_Score` is itself computed from absences, failing grades, feelings and attitude, the classifier redistributes credit among these correlated inputs. For example, *zero* failing grades raises the predicted risk slightly, and five failing grades lowers it. These are artifacts of the synthetic data, not findings. Monotonic constraints in XGBoost and a Studentship score without the absence and failing-grade penalties would remove them.
 - **Seed sensitivity.** The model is deterministic for seed 42, but individual case probabilities vary with the seed: across 30 seeds, cases near a threshold change tier. Averaging models trained on several seeds would make tiers stable.
 
 Explainability (SHAP and LIME on the real model) is implemented in full; see [Explainability approach](#explainability-approach).
@@ -320,7 +320,7 @@ Computed in `train_model()` in [app/scoring_engine.py](app/scoring_engine.py) an
 |---|---|
 | **P(dropout)** | `XGBClassifier.predict_proba(X)[0, 1]` on the encoded feature row |
 | **Aggregate score** | `round(P × 100, 1)` — the 0–100 headline number |
-| **Risk tier** | Probability bands: *Scăzut* (Low) ≥ 0.00, *Mediu* ≥ 0.20, *Ridicat* ≥ 0.42, *Critic* ≥ 0.65. A *Ridicat* case is **escalated to Critic** when ≥ 3 severe factors compound (extreme absences, average below 5, engagement ≤ 2/10, active sanctions, or crisis-level emotional stress) |
+| **Risk tier** | Probability bands: *Scăzut* (Low) ≥ 0.00, *Mediu* ≥ 0.20, *Ridicat* ≥ 0.42, *Critic* ≥ 0.65. A *Ridicat* case is **escalated to Critic** when ≥ 3 severe factors compound (extreme absences, average below 5, Studentship ≤ 2/10, active sanctions, or crisis-level emotional stress) |
 | **SHAP attributions** | Permutation explainer over `predict_proba` in **probability space**, against a 200-row background sample. Additive by construction: `base_value + Σ shap_values ≈ P(dropout)`, so "+18 points" is a true decomposition of the model's real output |
 | **Sub-scores** | Each feature maps to a domain (frequency, academic performance, family context, …); a domain's sub-score is its share of total attribution magnitude: `Σ\|shap\| within domain / Σ\|shap\| overall × 100`. Sums to ~100 |
 | **LIME local profile** | Local surrogate over 5000 proximity-weighted perturbations of the student's row, fitted with a sparse linear model; reports up to 8 rules. Seeded (`RANDOM_SEED`) for reproducibility. Marginal cost ≈ 22 ms/student |
@@ -354,3 +354,7 @@ python train.py --plot shap_summary.png  # just the global SHAP figure
 ```
 
 Training is deterministic given `--samples` (default 2800) and `--seed` (default 42), and `holdout_predictions()` regenerates the exact same split, so the figures always match the reported scalars.
+
+## Terminology
+
+The app calls the engagement construct **Studentship** everywhere: the report gauge, the risk indicators, the group report and the success indicators. The SHAP sub-score domains are *Participare extrașcolară* (extracurricular participation) and *Studentship*; until October 2026 they were called *Implicare* and *Implicare (Studentship)*, and evaluations saved under those names are displayed under the new ones. The cloud prompt asks the language model to use the same term.

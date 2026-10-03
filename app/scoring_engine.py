@@ -328,7 +328,7 @@ def generate_synthetic_dataset(
     #
     # The coefficients (calibrated in _RISK_LOGIT) encode the intended structure:
     # absences dominate only at *extreme* levels (a saturating term), while a
-    # good module average, engagement and low emotional stress are genuine
+    # good module average, a high Studentship score and low emotional stress are genuine
     # protective factors. This reproduces the counter-intuitive but correct
     # ordering where a student with more absences but a solid average and only
     # stress-driven disengagement ranks *below* one with fewer absences but

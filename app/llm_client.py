@@ -35,6 +35,8 @@ SYSTEM_PROMPT = (
     "chestionarului, dar nu primești nume, școală, data nașterii, vârsta sau "
     "sexul elevului; situația familială îți este dată doar la nivel general. "
     "NU inventezi date lipsă — lucrezi cu scorul și factorii numerici deja calculați. "
+    "Numește indicatorul de implicare școlară exclusiv «scorul Studentship»; nu "
+    "folosi alte denumiri pentru el. "
     "Structura obligatorie a răspunsului (în limba română, fără preambul):\n"
     "1. Rezumatul riscului (2–3 propoziții).\n"
     "2. Contract educațional (angajamente reciproce elev–profesor–familie).\n"
@@ -65,7 +67,7 @@ _INTERVENTIONS: dict[str, str] = {
         "Program de remediere pe disciplinele în care apar note sub 5, cu "
         "retestare scurtă și feedback imediat.",
     "Studentship_Score":
-        "Activități de responsabilizare și implicare (roluri în clasă, proiecte "
+        "Activități de responsabilizare și participare (roluri în clasă, proiecte "
         "de grup, sistem „buddy”) pentru creșterea sentimentului de apartenență.",
     "Stres_Emotional_NLP":
         "Sesiuni cu consilierul școlar, discuții individuale periodice și "

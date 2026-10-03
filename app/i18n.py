@@ -340,7 +340,7 @@ _UI: dict[str, str] = {
     "Absențe motivate (3 luni)": "Excused absences (3 months)",
     "Participare extrașcolară": "Extracurricular participation",
     "Număr note sub 5": "Number of grades below 5",
-    "Scor Studentship (implicare 0–10)": "Studentship score (engagement 0–10)",
+    "Scor Studentship (0–10)": "Studentship score (0–10)",
     "Atitudinea față de școală": "Attitude towards school",
     "Sancțiuni / avertismente": "Sanctions / warnings",
     "Cum se simte la școală": "How they feel at school",
@@ -378,7 +378,17 @@ _UI: dict[str, str] = {
     "Indicatori principali de risc:": "Main risk indicators:",
     "Niciun factor major de risc identificat.":
         "No major risk factor identified.",
-    "Scor Studentship (implicare)": "Studentship score (engagement)",
+    "Scor Studentship": "Studentship score",
+    "Notă: scorul Studentship este calculat din răspunsurile la chestionar "
+    "(participare extrașcolară, atitudine, cum se simte la școală, sprijin "
+    "perceput, sancțiuni), cu penalizări pentru absențe și note sub 5. Nu este "
+    "scala Studentship evaluată de profesor (prezență cognitivă și socială) "
+    "descrisă în cadrul de cercetare.":
+        "Note: the Studentship score is computed from the questionnaire answers "
+        "(extracurricular participation, attitude, how the student feels at "
+        "school, perceived support, sanctions), with penalties for absences and "
+        "grades below 5. It is not the teacher-rated Studentship scale "
+        "(cognitive and social presence) described in the research framework.",
     # --- report: xAI ---
     "Explicație xAI (de ce acest nivel de risc)":
         "xAI explanation (why this risk level)",
@@ -428,6 +438,7 @@ _UI: dict[str, str] = {
     "Performanță academică": "Academic performance",
     "Context familial": "Family context",
     "Climat școlar": "School climate",
+    "Context personal": "Personal context",
     "Stare emoțională (NLP)": "Emotional state (NLP)",
     "Profil demografic": "Demographic profile",
     "Altele": "Other",
@@ -443,8 +454,8 @@ _UI: dict[str, str] = {
         "Reduced family support (single-parent / guardian situation)",
     # --- report: plan + success indicators ---
     "Plan personalizat de intervenție": "Personalized intervention plan",
-    "Contract de implicare al elevului: „Proiectul Podul”.":
-        "Student engagement contract: “The Bridge Project”.",
+    "Contract educațional al elevului: „Proiectul Podul”.":
+        "Student educational contract: “The Bridge Project”.",
     "Planul de intervenție nu a fost generat.":
         "The intervention plan was not generated.",
     "Indicatori de succes (4 săptămâni)": "Success indicators (4 weeks)",
@@ -473,15 +484,15 @@ _UI: dict[str, str] = {
     "Distribuția pe niveluri de risc": "Distribution by risk level",
     "Prioritizarea intervențiilor": "Intervention prioritization",
     "Elevii sunt ordonați după urgența intervenției: mai întâi nivelul de risc "
-    "(Critic → Scăzut), apoi scorul modelului; la risc egal, o implicare "
-    "(Studentship) mai scăzută urcă în prioritate.":
+    "(Critic → Scăzut), apoi scorul modelului; la risc egal, un scor "
+    "Studentship mai scăzut urcă în prioritate.":
         "Students are ordered by intervention urgency: risk level first "
         "(Critical → Low), then the model score; at equal risk, lower "
-        "engagement (Studentship) moves up the list.",
+        "Studentship score moves up the list.",
     "Nivel de risc": "Risk level",
     "Scor": "Score",
     "Urgență": "Urgency",
-    "Implicare": "Engagement",
+    "Studentship": "Studentship",
     "Factori principali": "Main factors",
     "Scorurile și explicațiile provin dintr-un model XGBoost real cu atribuiri "
     "SHAP autentice. Acest raport sintetizează evaluările individuale; pentru "
@@ -669,9 +680,9 @@ _TEMPLATES: dict[str, str] = {
         "Fill in the student's data on the left and press "
         "<b>“Assess risk”</b>.",
     "Sursă: {source}": "Source: {source}",
-    "Implicare: creșterea scorului Studentship de la <b>{current:g}/10</b> la "
+    "Studentship: creșterea scorului de la <b>{current:g}/10</b> la "
     "<b>{target:g}/10</b>.":
-        "Engagement: raise the Studentship score from <b>{current:g}/10</b> to "
+        "Studentship: raise the score from <b>{current:g}/10</b> to "
         "<b>{target:g}/10</b>.",
     '<b>{count}</b> elevi <span style="color:#888;">({pct:.0f}%)</span>':
         '<b>{count}</b> students <span style="color:#888;">({pct:.0f}%)</span>',
@@ -680,8 +691,8 @@ _TEMPLATES: dict[str, str] = {
         "Chronic absenteeism ({count} unexcused absences / 3 months)",
     "Absențe nemotivate ridicate ({count} / 3 luni)":
         "High unexcused absences ({count} / 3 months)",
-    "Implicare (Studentship) foarte scăzută ({score:g}/10)":
-        "Very low engagement (Studentship) ({score:g}/10)",
+    "Scor Studentship foarte scăzut ({score:g}/10)":
+        "Very low Studentship score ({score:g}/10)",
     "Medie sub pragul de promovare ({average:g})":
         "Average below the pass threshold ({average:g})",
     "Note multiple sub 5 ({count})": "Multiple grades below 5 ({count})",
