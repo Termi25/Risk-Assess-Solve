@@ -428,7 +428,6 @@ _UI: dict[str, str] = {
     "Performanță academică": "Academic performance",
     "Context familial": "Family context",
     "Climat școlar": "School climate",
-    "Context personal": "Personal context",
     "Stare emoțională (NLP)": "Emotional state (NLP)",
     "Profil demografic": "Demographic profile",
     "Altele": "Other",
@@ -444,8 +443,8 @@ _UI: dict[str, str] = {
         "Reduced family support (single-parent / guardian situation)",
     # --- report: plan + success indicators ---
     "Plan personalizat de intervenție": "Personalized intervention plan",
-    "Contract educațional al elevului: „Proiectul Podul”.":
-        "Student educational contract: “The Bridge Project”.",
+    "Contract de implicare al elevului: „Proiectul Podul”.":
+        "Student engagement contract: “The Bridge Project”.",
     "Planul de intervenție nu a fost generat.":
         "The intervention plan was not generated.",
     "Indicatori de succes (4 săptămâni)": "Success indicators (4 weeks)",
@@ -482,6 +481,7 @@ _UI: dict[str, str] = {
     "Nivel de risc": "Risk level",
     "Scor": "Score",
     "Urgență": "Urgency",
+    "Implicare": "Engagement",
     "Studentship": "Studentship",
     "Factori principali": "Main factors",
     "Scorurile și explicațiile provin dintr-un model XGBoost real cu atribuiri "

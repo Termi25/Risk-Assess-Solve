@@ -571,7 +571,7 @@ def _plan_html(plan_text: str, source: str) -> str:
     parts.append(_section_title(tr("Plan personalizat de intervenție")))
     parts.append(
         '<p style="color:#555; font-size:9pt;">'
-        + escape(tr("Contract educațional al elevului: „Proiectul Podul”."))
+        + escape(tr("Contract de implicare al elevului: „Proiectul Podul”."))
         + "</p>"
     )
     if plan_text and plan_text.strip():

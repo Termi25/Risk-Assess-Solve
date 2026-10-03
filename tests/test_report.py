@@ -135,11 +135,10 @@ def test_fidelity_panel_colours_the_cell_not_the_table(report_html):
     assert re.search(r'<td bgcolor="#f2f4f7">\s*<span[^>]*><b>Fidelitatea', html)
 
 
-def test_report_names_the_construct_studentship_only(report_html):
-    """The report used "implicare" (engagement) and "Studentship" for the same
-    score, plus a separate "Implicare" domain; only "Studentship" remains."""
+def test_report_names_the_studentship_score_studentship_only(report_html):
+    """The Studentship score was also labelled "implicare" (engagement)."""
     html, _ = report_html
-    assert "Implicare" not in html
-    assert "implicare" not in html
+    assert "Implicare (Studentship)" not in html
+    assert "Scor Studentship (implicare" not in html
     assert "Scor Studentship" in html
 

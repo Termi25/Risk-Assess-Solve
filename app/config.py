@@ -405,11 +405,8 @@ def normalize_band(band: str) -> str:
 
 
 # Sub-score domain names used by earlier versions, still present in saved
-# evaluations. "Implicare" (engagement) was used both for extracurricular
-# participation and, as "Implicare (Studentship)", for the Studentship score;
-# the app now names the construct "Studentship" only.
+# evaluations: the Studentship score's domain was "Implicare (Studentship)".
 LEGACY_DOMAIN_NAMES: dict[str, str] = {
-    "Implicare": "Participare extrașcolară",
     "Implicare (Studentship)": "Studentship",
 }
 

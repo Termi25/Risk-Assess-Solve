@@ -48,7 +48,7 @@ def test_schema_created_on_fresh_db(tmp_path):
 
 
 def test_legacy_domain_names_load_under_current_names(trained_model, tmp_path):
-    """Evaluations saved before the rename carry "Implicare" domains."""
+    """Evaluations saved before the rename carry "Implicare (Studentship)"."""
     model, _ = trained_model
     case = _case()
     features = dict(case.features)
@@ -64,6 +64,6 @@ def test_legacy_domain_names_load_under_current_names(trained_model, tmp_path):
                         (__import__("json").dumps(legacy), eval_id))
         db.conn.commit()
         _, loaded = db.load_evaluation(eval_id)
-        assert [s.name for s in loaded.sub_scores] == ["Participare extrașcolară", "Studentship"]
+        assert [s.name for s in loaded.sub_scores] == ["Implicare", "Studentship"]
     finally:
         db.close()

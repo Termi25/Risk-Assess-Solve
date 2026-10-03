@@ -357,4 +357,4 @@ Training is deterministic given `--samples` (default 2800) and `--seed` (default
 
 ## Terminology
 
-The app calls the engagement construct **Studentship** everywhere: the report gauge, the risk indicators, the group report and the success indicators. The SHAP sub-score domains are *Participare extrașcolară* (extracurricular participation) and *Studentship*; until October 2026 they were called *Implicare* and *Implicare (Studentship)*, and evaluations saved under those names are displayed under the new ones. The cloud prompt asks the language model to use the same term.
+The Studentship score is called **Studentship** everywhere: the report gauge, the risk indicators, the group report, the success indicators and its SHAP sub-score domain. Until October 2026 that domain was called *Implicare (Studentship)*; evaluations saved under that name are displayed as *Studentship*. The separate *Implicare* domain covers extracurricular participation.
