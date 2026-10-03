@@ -138,7 +138,7 @@ class RiskEvaluation:
 
     probability: float                       # model P(dropout) in [0, 1]
     aggregate_score: float                    # probability * 100, rounded
-    risk_band: str                            # "Moderat" | "Mediu" | "Ridicat" | "Critic"
+    risk_band: str                            # "Scăzut" | "Mediu" | "Ridicat" | "Critic"
     base_value: float                         # SHAP expected value (baseline P)
     urgency: str = ""                         # "Monitorizare" | "Medie" | "Ridicată" | "Maximă"
     studentship_score: float = 0.0            # engagement score 0..10 (surfaced in the report)

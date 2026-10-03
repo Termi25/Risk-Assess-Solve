@@ -356,7 +356,7 @@ def feature(key: str) -> Feature:
 # --- Risk classification (4-tier prioritization, per the research figures) --
 # The intervention-prioritization table distinguishes four risk levels, each
 # with a matching intervention urgency and a colour used across the report:
-#   Moderat  -> Monitorizare (green)   — healthy, keep watching
+#   Scăzut   -> Monitorizare (green)   — low risk, keep watching
 #   Mediu    -> Medie         (yellow) — targeted support
 #   Ridicat  -> Ridicată      (orange) — active intervention
 #   Critic   -> Maximă        (red)    — immediate, compounded-risk crisis
@@ -376,7 +376,7 @@ class RiskTier:
 # the tiers sit at the natural break-points of that distribution (base dropout
 # rate ≈ 0.22) instead of the near-1.0 values the old hard-rule model emitted.
 RISK_TIERS: tuple[RiskTier, ...] = (
-    RiskTier("Moderat", "Monitorizare", 0.00, "#2e8b57", "#ffffff"),
+    RiskTier("Scăzut",  "Monitorizare", 0.00, "#2e8b57", "#ffffff"),
     RiskTier("Mediu",   "Medie",        0.20, "#f1c40f", "#3a3a3a"),
     RiskTier("Ridicat", "Ridicată",     0.42, "#e67e22", "#ffffff"),
     RiskTier("Critic",  "Maximă",       0.65, "#d64550", "#ffffff"),
@@ -393,9 +393,20 @@ def tier_for_probability(probability: float) -> RiskTier:
     return chosen
 
 
+# Band names used by earlier versions, still present in saved evaluations.
+# The lowest tier was called "Moderat" until it was renamed to "Scăzut" (Low),
+# which matches the green / monitoring-only meaning of the tier.
+LEGACY_BAND_NAMES: dict[str, str] = {"Moderat": "Scăzut"}
+
+
+def normalize_band(band: str) -> str:
+    """Current name for a band, mapping legacy names (``Moderat`` -> ``Scăzut``)."""
+    return LEGACY_BAND_NAMES.get(band, band)
+
+
 def tier_for_band(band: str) -> RiskTier:
     """Look up a tier by band name; falls back to the lowest tier."""
-    return RISK_TIER_BY_BAND.get(band, RISK_TIERS[0])
+    return RISK_TIER_BY_BAND.get(normalize_band(band), RISK_TIERS[0])
 
 
 # --- Paths ------------------------------------------------------------------

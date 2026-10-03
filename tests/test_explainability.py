@@ -33,7 +33,7 @@ def test_risk_bands(trained_model):
     model, _ = trained_model
     # HIGH_RISK is an extreme, compounded profile -> top of the 4-tier scale.
     assert evaluate(model, HIGH_RISK).risk_band in {"Ridicat", "Critic"}
-    assert evaluate(model, LOW_RISK).risk_band == "Moderat"
+    assert evaluate(model, LOW_RISK).risk_band == "Scăzut"
 
 
 def test_urgency_matches_band(trained_model):

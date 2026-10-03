@@ -814,7 +814,7 @@ def _risk_distribution_html(entries: list[tuple[StudentCase, RiskEvaluation]]) -
 
     parts: list[str] = [_section_title(tr("Distribuția pe niveluri de risc"))]
     parts.append('<table width="100%" cellpadding="3" cellspacing="0">')
-    for tier in reversed(config.RISK_TIERS):  # Critic -> Moderat
+    for tier in reversed(config.RISK_TIERS):  # Critic -> Scăzut
         n = counts.get(tier.band, 0)
         width = int(round(n / total * _MAX_BAR_PX))
         pct = n / total * 100.0
@@ -881,7 +881,7 @@ def _priority_table_html(entries: list[tuple[StudentCase, RiskEvaluation]]) -> s
         _section_title(tr("Prioritizarea intervențiilor"))
         + '<p style="color:#555; font-size:9pt;">'
         + escape(tr("Elevii sunt ordonați după urgența intervenției: mai întâi "
-                    "nivelul de risc (Critic → Moderat), apoi scorul modelului; "
+                    "nivelul de risc (Critic → Scăzut), apoi scorul modelului; "
                     "la risc egal, o implicare (Studentship) mai scăzută urcă în "
                     "prioritate."))
         + "</p>"

@@ -16,6 +16,8 @@ stored value instead of the label would silently change what the model is fed.
 
 from __future__ import annotations
 
+from . import config
+
 LANGUAGES: tuple[tuple[str, str], ...] = (
     ("ro", "Română"),
     ("en", "English"),
@@ -62,7 +64,8 @@ def tr_value(value: str) -> str:
 
 
 def tr_band(band: str) -> str:
-    """Translate a risk-band name (``Moderat`` / ``Mediu`` / …) for display."""
+    """Translate a risk-band name (``Scăzut`` / ``Mediu`` / …) for display."""
+    band = config.normalize_band(band)
     if _current == "ro":
         return band
     return _BANDS.get(band, band)
@@ -121,7 +124,7 @@ _VALUES: dict[str, str] = {
 
 # Risk bands and urgency levels.
 _BANDS: dict[str, str] = {
-    "Moderat": "Moderate",
+    "Scăzut": "Low",
     "Mediu": "Medium",
     "Ridicat": "High",
     "Critic": "Critical",
@@ -470,10 +473,10 @@ _UI: dict[str, str] = {
     "Distribuția pe niveluri de risc": "Distribution by risk level",
     "Prioritizarea intervențiilor": "Intervention prioritization",
     "Elevii sunt ordonați după urgența intervenției: mai întâi nivelul de risc "
-    "(Critic → Moderat), apoi scorul modelului; la risc egal, o implicare "
+    "(Critic → Scăzut), apoi scorul modelului; la risc egal, o implicare "
     "(Studentship) mai scăzută urcă în prioritate.":
         "Students are ordered by intervention urgency: risk level first "
-        "(Critical → Moderate), then the model score; at equal risk, lower "
+        "(Critical → Low), then the model score; at equal risk, lower "
         "engagement (Studentship) moves up the list.",
     "Nivel de risc": "Risk level",
     "Scor": "Score",

@@ -106,6 +106,16 @@ def test_all_risk_bands_translate():
         assert i18n.tr_band(tier.urgency) != ""
 
 
+def test_legacy_moderat_band_reads_as_low():
+    # Evaluations saved before the rename still carry "Moderat".
+    assert config.tier_for_band("Moderat").band == "Scăzut"
+    i18n.set_language("ro")
+    assert i18n.tr_band("Moderat") == "Scăzut"
+    i18n.set_language("en")
+    assert i18n.tr_band("Moderat") == "Low"
+    assert i18n.tr_band("Scăzut") == "Low"
+
+
 # --- catalog integrity ------------------------------------------------------
 def test_template_placeholders_match_across_languages():
     """A renamed field in one language would raise KeyError at format time."""
