@@ -143,7 +143,3 @@ def test_report_names_the_construct_studentship_only(report_html):
     assert "implicare" not in html
     assert "Scor Studentship" in html
 
-
-def test_report_states_the_scope_of_the_studentship_score(report_html):
-    html, _ = report_html
-    assert "Nu este scala Studentship evaluată de profesor" in html

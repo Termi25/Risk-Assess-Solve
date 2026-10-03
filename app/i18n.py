@@ -379,16 +379,6 @@ _UI: dict[str, str] = {
     "Niciun factor major de risc identificat.":
         "No major risk factor identified.",
     "Scor Studentship": "Studentship score",
-    "Notă: scorul Studentship este calculat din răspunsurile la chestionar "
-    "(participare extrașcolară, atitudine, cum se simte la școală, sprijin "
-    "perceput, sancțiuni), cu penalizări pentru absențe și note sub 5. Nu este "
-    "scala Studentship evaluată de profesor (prezență cognitivă și socială) "
-    "descrisă în cadrul de cercetare.":
-        "Note: the Studentship score is computed from the questionnaire answers "
-        "(extracurricular participation, attitude, how the student feels at "
-        "school, perceived support, sanctions), with penalties for absences and "
-        "grades below 5. It is not the teacher-rated Studentship scale "
-        "(cognitive and social presence) described in the research framework.",
     # --- report: xAI ---
     "Explicație xAI (de ce acest nivel de risc)":
         "xAI explanation (why this risk level)",

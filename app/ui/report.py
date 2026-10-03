@@ -90,31 +90,6 @@ def _studentship_gauge_html(score: float) -> str:
     )
 
 
-_STUDENTSHIP_NOTE = (
-    "Notă: scorul Studentship este calculat din răspunsurile la chestionar "
-    "(participare extrașcolară, atitudine, cum se simte la școală, sprijin "
-    "perceput, sancțiuni), cu penalizări pentru absențe și note sub 5. Nu este "
-    "scala Studentship evaluată de profesor (prezență cognitivă și socială) "
-    "descrisă în cadrul de cercetare."
-)
-
-
-def _studentship_note_html() -> str:
-    """States what the prototype's Studentship score is, and what it is not.
-
-    The research framework defines Studentship as a teacher-rated scale of
-    cognitive and social presence; the prototype has no such ratings and
-    approximates it from the questionnaire (``scoring_engine._studentship_score``).
-    The report says so wherever the score is shown, so the number is not read
-    as the validated construct.
-    """
-    return (
-        '<p style="color:#555; font-size:7.5pt; margin:2px 0 4px 0;">'
-        + escape(tr(_STUDENTSHIP_NOTE))
-        + "</p>"
-    )
-
-
 # --- Shared chrome: page header band + spacer -------------------------------
 def _page_header_html(section_label: str, *, cover: bool = False) -> str:
     """A title band shown at the top of every report page.
@@ -219,7 +194,7 @@ def _risk_profile_html(ev: RiskEvaluation) -> str:
         "</td>"
     )
 
-    # Right: urgency, Studentship gauge (with its scope note) and the main risk indicators.
+    # Right: urgency, Studentship gauge and the main risk indicators.
     parts.append('<td valign="top">')
     parts.append(
         f'<p style="font-size:10pt; margin:0 0 4px 0;">'
@@ -227,7 +202,6 @@ def _risk_profile_html(ev: RiskEvaluation) -> str:
         f'<span style="color:{tier.color};">●</span> {escape(tr_band(ev.urgency))}</p>'
     )
     parts.append(_studentship_gauge_html(ev.studentship_score))
-    parts.append(_studentship_note_html())
     parts.append(
         f'<p style="font-size:10pt; margin:6px 0 2px 0;">'
         f'<b>{escape(tr("Indicatori principali de risc:"))}</b></p>'
